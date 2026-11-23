@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -795,36 +796,116 @@ func TestInstallDir_FromAnotherVolume(t *testing.T) {
 	}
 }
 
+// A compile on another volume whose rename to a stage in the temporary
+// directory fails too is not copied from Core ML's own name, which a stop
+// mid-copy would strand: it is removed, and the install fails.
+func TestInstallDir_NoStageForTheCopy(t *testing.T) {
+	root, tmp := t.TempDir(), t.TempDir()
+	src := filepath.Join(tmp, "compiled")
+	if err := os.MkdirAll(filepath.Join(src, "weights"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(root, "model.mlmodelc")
+	rename := renameDir
+	renameDir = func(from, to string) error {
+		return &os.LinkError{Op: "rename", Old: from, New: to, Err: errors.New("cross-device link")}
+	}
+	defer func() { renameDir = rename }()
+	if err := installDir(src, dst, tmp); err == nil {
+		t.Fatal("installed with no stage to copy from")
+	}
+	for _, dir := range []string{root, tmp} {
+		if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+			t.Fatalf("%d entries left in %s", len(entries), dir)
+		}
+	}
+}
+
+// A copy that fails once another process installed the compiled model
+// keeps that model, as a final rename that fails does: Core ML stays on.
+func TestInstallDir_CopyFailsAfterAnotherInstall(t *testing.T) {
+	for _, installed := range []bool{true, false} {
+		root, tmp := t.TempDir(), t.TempDir()
+		src := filepath.Join(tmp, "compiled")
+		if err := os.MkdirAll(filepath.Join(src, "weights"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		dst := filepath.Join(root, "model.mlmodelc")
+		stage := stagePath(dst, os.Getpid())
+		rename := renameDir
+		renameDir = func(from, to string) error {
+			if filepath.Dir(to) == root {
+				return &os.LinkError{Op: "rename", Old: from, New: to, Err: errors.New("cross-device link")}
+			}
+			if err := rename(from, to); err != nil {
+				return err
+			}
+			if installed {
+				if err := os.MkdirAll(filepath.Join(dst, "weights"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			// A file where the copy goes fails it, as a full disk would.
+			return os.WriteFile(stage, nil, 0o600)
+		}
+		err := installDir(src, dst, tmp)
+		renameDir = rename
+		if installed != (err == nil) {
+			t.Fatalf("another install %v: the failed copy returned %v", installed, err)
+		}
+		if _, err := os.Stat(dst); installed != (err == nil) {
+			t.Fatalf("another install %v: its model: %v", installed, err)
+		}
+		left := map[string]int{root: 0, tmp: 0}
+		if installed {
+			left[root] = 1 // the model
+		}
+		for dir, want := range left {
+			if entries, _ := os.ReadDir(dir); len(entries) != want {
+				t.Fatalf("another install %v: %d entries left in %s, want %d", installed, len(entries), dir, want)
+			}
+		}
+	}
+}
+
 // A staging directory a dead process left, beside the compiled model or
-// in the temporary directory, is removed once it is old; a fresh one
-// belongs to a compile in flight.
+// in the temporary directory, is removed once it is old. A fresh one, one
+// of a process that runs and a name stagePath does not make are kept.
 func TestRemoveStaleStages(t *testing.T) {
 	// A bracket in the path is a name like any other, not a pattern.
 	base := t.TempDir()
 	root, tmp := filepath.Join(base, "cache[1]"), filepath.Join(base, "tmp")
 	dst := filepath.Join(root, "model.mlmodelc")
-	old, fresh := stagePath(dst, 111), stagePath(dst, 222)
-	oldHeld, freshHeld := filepath.Join(tmp, filepath.Base(old)), filepath.Join(tmp, filepath.Base(fresh))
-	elsewhere := stagePath(filepath.Join(base, "cache1", "model.mlmodelc"), 111)
-	unrelated := filepath.Join(root, "model.mlmodelc.tmp")
-	for _, d := range []string{old, fresh, oldHeld, freshHeld, dst, elsewhere, unrelated} {
+	dead := exec.Command(os.Args[0], "-test.run=^$")
+	if err := dead.Run(); err != nil {
+		t.Fatal(err)
+	}
+	old, fresh, mine := stagePath(dst, dead.Process.Pid), stagePath(dst, 222), stagePath(dst, os.Getpid())
+	held := func(stage string) string { return filepath.Join(tmp, filepath.Base(stage)) }
+	elsewhere := stagePath(filepath.Join(base, "cache1", "model.mlmodelc"), dead.Process.Pid)
+	var unrelated []string
+	for _, name := range []string{"model.mlmodelc.tmp", "model.mlmodelc.backup.tmp", "model.mlmodelc.0123.tmp", "model.mlmodelc.-1.tmp"} {
+		unrelated = append(unrelated, filepath.Join(root, name), filepath.Join(tmp, name))
+	}
+	aged := append([]string{old, held(old), mine, held(mine), elsewhere}, unrelated...)
+	for _, d := range append([]string{fresh, held(fresh), dst}, aged...) {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
 	past := time.Now().Add(-2 * aneStageMaxAge)
-	for _, d := range []string{old, oldHeld, elsewhere, unrelated} {
+	for _, d := range aged {
 		if err := os.Chtimes(d, past, past); err != nil {
 			t.Fatal(err)
 		}
 	}
 	removeStaleStages(dst, tmp)
-	for _, d := range []string{old, oldHeld} {
+	for _, d := range []string{old, held(old)} {
 		if _, err := os.Stat(d); err == nil {
 			t.Errorf("an abandoned staging directory was kept: %s", d[len(base):])
 		}
 	}
-	for _, d := range []string{fresh, freshHeld, dst, elsewhere, unrelated} {
+	for _, d := range append([]string{fresh, held(fresh), mine, held(mine), dst, elsewhere}, unrelated...) {
 		if _, err := os.Stat(d); err != nil {
 			t.Errorf("%s was removed", d[len(base):])
 		}

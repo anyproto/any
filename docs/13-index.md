@@ -988,10 +988,13 @@ downloaded and a package already in the models dir is used. The child
 checks the files against their checksums and compiles the package once
 into `<name>-<digest>.mlmodelc` beside it. Core ML compiles into the
 system temporary directory; when the models dir is on another volume,
-the compile is renamed there to a staging name and copied from it. A
-staging directory, there or beside the compiled model, that a child
-stopped mid-install left behind is removed by a later preparation once
-it is an hour old. Until the package is complete
+the compile is renamed there to a staging name with the child's pid and
+copied from it, and a compile that cannot be renamed is removed and not
+installed. A staging directory, there or beside the compiled model,
+that a child stopped mid-install left behind is removed by a later
+preparation once it is an hour old and no process has its pid. A copy
+that fails after another child installed the compiled model leaves
+that model in use. Until the package is complete
 llama.cpp embeds queries, the child looks for the package again every
 30 s, and bulk work waits for its download (below). The package's licence texts
 (`LICENSE`, `NOTICE` and the licence the notice refers to) follow it

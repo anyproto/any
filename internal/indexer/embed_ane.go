@@ -825,7 +825,8 @@ func stagePath(dst string, pid int) string {
 }
 
 // removeStaleStages deletes the staging directories of installs toward
-// dst that a dead process left behind, beside dst and in tempDir.
+// dst that a dead process left behind, beside dst and in tempDir: named
+// as stagePath names them, old, and of a pid that no process has.
 func removeStaleStages(dst, tempDir string) {
 	base := filepath.Base(dst)
 	for _, dir := range []string{filepath.Dir(dst), tempDir} {
@@ -835,16 +836,32 @@ func removeStaleStages(dst, tempDir string) {
 		// By name, not a pattern: the directory's own path can hold a bracket.
 		entries, _ := os.ReadDir(dir)
 		for _, e := range entries {
-			name := e.Name()
-			if !strings.HasPrefix(name, base+".") || !strings.HasSuffix(name, ".tmp") || len(name) < len(base)+len("..tmp") {
+			pid, ok := stagePID(e.Name(), base)
+			if !ok {
 				continue
 			}
-			s := filepath.Join(dir, name)
-			if st, err := os.Stat(s); err == nil && time.Since(st.ModTime()) > aneStageMaxAge {
+			// A live owner's stage is in use, however old: its copy can
+			// have slept through the age bound.
+			s := filepath.Join(dir, e.Name())
+			if st, err := os.Stat(s); err == nil && time.Since(st.ModTime()) > aneStageMaxAge && !processAlive(pid) {
 				_ = os.RemoveAll(s)
 			}
 		}
 	}
+}
+
+// stagePID is the pid in name, a stage that stagePath names for a
+// destination named base; false for any other name.
+func stagePID(name, base string) (int, bool) {
+	digits, ok := strings.CutPrefix(name, base+".")
+	if ok {
+		digits, ok = strings.CutSuffix(digits, ".tmp")
+	}
+	if !ok {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(digits, 10, 32)
+	return int(n), err == nil && n > 0 && strconv.FormatInt(n, 10) == digits
 }
 
 // renameDir is os.Rename; tests make it fail as across volumes.
@@ -854,33 +871,45 @@ var renameDir = os.Rename
 // all; a dst another process installed meanwhile is kept. A src on another
 // volume is copied from a stage in tempDir that removeStaleStages sweeps.
 func installDir(src, dst, tempDir string) error {
+	if tempDir == "" {
+		tempDir = os.TempDir()
+	}
 	stage := stagePath(dst, os.Getpid())
 	_ = os.RemoveAll(stage)
 	if err := renameDir(src, stage); err != nil {
 		// src can sit on another volume: Core ML compiles into the system
-		// temporary directory, where src then waits under a known name.
-		if held := filepath.Join(tempDir, filepath.Base(stage)); tempDir != "" && held != src {
+		// temporary directory. It is copied only from a name there that the
+		// sweep knows, so a stop mid-copy strands nothing.
+		if held := filepath.Join(tempDir, filepath.Base(stage)); held != src {
 			_ = os.RemoveAll(held)
-			if renameDir(src, held) == nil {
-				src = held
-				_ = os.Chtimes(held, time.Time{}, time.Now()) // its age counts from here
+			if err := renameDir(src, held); err != nil {
+				_ = os.RemoveAll(src)
+				return err
 			}
+			src = held
+			_ = os.Chtimes(held, time.Time{}, time.Now()) // its age counts from here
 		}
 		err := os.CopyFS(stage, os.DirFS(src))
 		_ = os.RemoveAll(src)
 		if err != nil {
 			_ = os.RemoveAll(stage)
-			return err
+			return installedMeanwhile(dst, err)
 		}
 	}
 	if err := os.Rename(stage, dst); err != nil {
 		_ = os.RemoveAll(stage)
-		if _, statErr := os.Stat(dst); statErr == nil {
-			return nil
-		}
-		return err
+		return installedMeanwhile(dst, err)
 	}
 	return nil
+}
+
+// installedMeanwhile is err of an install that failed, nil when another
+// process installed dst meanwhile.
+func installedMeanwhile(dst string, err error) error {
+	if _, statErr := os.Stat(dst); statErr == nil {
+		return nil
+	}
+	return err
 }
 
 // load opens the function and has it predict.
