@@ -866,7 +866,8 @@ any debug neural-engine [--function s128]   # no server: Core ML plan, load and 
 an Apple Silicon Mac. It takes the pinned Core ML package of
 `embeddinggemma-2` from `<root>/models` (`--data-dir` / `--config` pick
 the root, as for `any run`), checks it against its pin, compiles it
-into a temporary directory that it removes at the end, and for each
+into a temporary directory that it removes at the end, also when it is
+interrupted, and for each
 function (or the ones named with `--function`, repeatable) reads Core
 ML's compute plan, loads it, predicts once and times 50 predictions of
 a text three quarters of the function's length. Progress goes to stderr

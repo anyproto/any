@@ -3,8 +3,10 @@ package cli
 import (
 	"fmt"
 	"os/exec"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
@@ -36,6 +38,9 @@ func newDebugNeuralEngineCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// An interrupt ends the run with its temporary directory removed.
+			ctx, cancel := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
+			defer cancel()
 			progress := func(format string, args ...any) {
 				fmt.Fprintf(cmd.ErrOrStderr(), format+"\n", args...)
 			}
@@ -45,7 +50,7 @@ func newDebugNeuralEngineCmd() *cobra.Command {
 				progress("note: %s", out.Note)
 			}
 			models := config.ModelsDir(config.ExpandTilde(cfg.DataDir))
-			out.NeuralEngineReport, err = indexer.DebugNeuralEngine(models, functions, progress)
+			out.NeuralEngineReport, err = indexer.DebugNeuralEngine(ctx, models, functions, progress)
 			if err != nil {
 				return err
 			}

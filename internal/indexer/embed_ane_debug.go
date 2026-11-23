@@ -3,6 +3,7 @@
 package indexer
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -65,8 +66,9 @@ type neuralEngineProbe struct {
 
 // DebugNeuralEngine measures the default model's Core ML package in
 // modelsDir on this machine. functions, when set, names the ones to
-// measure ("s128"). progress, when set, is told what is under way.
-func DebugNeuralEngine(modelsDir string, functions []string, progress func(format string, args ...any)) (*NeuralEngineReport, error) {
+// measure ("s128"). progress, when set, is told what is under way. A ctx
+// that ends stops the measurement between two Core ML calls or inside one.
+func DebugNeuralEngine(ctx context.Context, modelsDir string, functions []string, progress func(format string, args ...any)) (*NeuralEngineReport, error) {
 	if !aneHost() {
 		return nil, fmt.Errorf("%w: it needs an Apple Silicon Mac, not a virtual machine, on macOS 15 or later", ErrNeuralEngineUnsupported)
 	}
@@ -78,14 +80,14 @@ func DebugNeuralEngine(modelsDir string, functions []string, progress func(forma
 		return nil, fmt.Errorf("%w: %s has no Core ML package", ErrNeuralEngineUnsupported, model.id)
 	}
 	probe := neuralEngineProbe{hasEngine: coreml.HasNeuralEngine, compile: coreml.Compile, plan: coreml.Plan, measure: coreml.Measure}
-	r, err := probe.report(model.coreml, modelsDir, model.dim, functions, progress)
+	r, err := probe.report(ctx, model.coreml, modelsDir, model.dim, functions, progress)
 	if r != nil {
 		r.Model = model.id
 	}
 	return r, err
 }
 
-func (p neuralEngineProbe) report(pkg *coreMLPackage, modelsDir string, dim int, functions []string, progress func(string, ...any)) (*NeuralEngineReport, error) {
+func (p neuralEngineProbe) report(ctx context.Context, pkg *coreMLPackage, modelsDir string, dim int, functions []string, progress func(string, ...any)) (*NeuralEngineReport, error) {
 	if progress == nil {
 		progress = func(string, ...any) {}
 	}
@@ -119,7 +121,27 @@ func (p neuralEngineProbe) report(pkg *coreMLPackage, modelsDir string, dim int,
 	}
 	defer os.RemoveAll(compiled)
 	r := &NeuralEngineReport{Package: pkg.id(), Host: aneHostSetup(), CompileMs: millis(time.Since(start))}
+	// On a goroutine of its own: a Core ML call cannot be interrupted, and
+	// an interrupted command still removes what it compiled.
+	done := make(chan []NeuralEngineFunction, 1)
+	go func() { done <- p.functions(ctx, compiled, lengths, dim, progress) }()
+	select {
+	case r.Functions = <-done:
+	case <-ctx.Done():
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return r, nil
+}
+
+// functions measures the functions of the given lengths, one after
+// another, until ctx ends.
+func (p neuralEngineProbe) functions(ctx context.Context, compiled string, lengths []int, dim int, progress func(string, ...any)) (out []NeuralEngineFunction) {
 	for _, length := range lengths {
+		if ctx.Err() != nil {
+			return out
+		}
 		f := NeuralEngineFunction{Function: "s" + strconv.Itoa(length)}
 		progress("%s: reading its compute plan", f.Function)
 		start := time.Now()
@@ -144,9 +166,9 @@ func (p neuralEngineProbe) report(pkg *coreMLPackage, modelsDir string, dim int,
 				f.TextsPerSecond = float64(int(10*float64(time.Second)/float64(t.PerText))) / 10
 			}
 		}
-		r.Functions = append(r.Functions, f)
+		out = append(out, f)
 	}
-	return r, nil
+	return out
 }
 
 // pickFunctions resolves the functions asked for ("s128"), in the

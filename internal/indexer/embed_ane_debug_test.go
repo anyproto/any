@@ -3,6 +3,7 @@
 package indexer
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -54,7 +55,7 @@ func debugPackage(t *testing.T) (pkg *coreMLPackage, models string, probe neural
 func TestNeuralEngineReport(t *testing.T) {
 	pkg, models, probe, compiled := debugPackage(t)
 	var said []string
-	r, err := probe.report(pkg, models, 4, nil, func(format string, _ ...any) { said = append(said, format) })
+	r, err := probe.report(context.Background(), pkg, models, 4, nil, func(format string, _ ...any) { said = append(said, format) })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,11 +82,11 @@ func TestNeuralEngineReport(t *testing.T) {
 // fails is that function's error and the others are still measured.
 func TestNeuralEngineReport_FilterAndFailures(t *testing.T) {
 	pkg, models, probe, _ := debugPackage(t)
-	r, err := probe.report(pkg, models, 4, []string{"s256"}, nil)
+	r, err := probe.report(context.Background(), pkg, models, 4, []string{"s256"}, nil)
 	if err != nil || len(r.Functions) != 1 || r.Functions[0].Function != "s256" {
 		t.Fatalf("filtered: %+v, %v", r, err)
 	}
-	if _, err := probe.report(pkg, models, 4, []string{"s512"}, nil); err == nil {
+	if _, err := probe.report(context.Background(), pkg, models, 4, []string{"s512"}, nil); err == nil {
 		t.Fatal("a function the package does not have was accepted")
 	}
 	probe.plan = func(_, function string) (coreml.Placement, error) {
@@ -98,7 +99,7 @@ func TestNeuralEngineReport_FilterAndFailures(t *testing.T) {
 		}
 		return measure(compiled, function, length, dim, rounds)
 	}
-	r, err = probe.report(pkg, models, 4, nil, nil)
+	r, err = probe.report(context.Background(), pkg, models, 4, nil, nil)
 	if err != nil || len(r.Functions) != 2 {
 		t.Fatalf("with failures: %+v, %v", r, err)
 	}
@@ -118,21 +119,21 @@ func TestNeuralEngineReport_Refusals(t *testing.T) {
 		t.Fatal("compiled")
 		return "", nil
 	}
-	if _, err := probe.report(pkg, t.TempDir(), 4, nil, nil); err == nil || !strings.Contains(err.Error(), "not installed") {
+	if _, err := probe.report(context.Background(), pkg, t.TempDir(), 4, nil, nil); err == nil || !strings.Contains(err.Error(), "not installed") {
 		t.Fatalf("a missing package: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(pkg.dir(models), "weight.bin"), []byte("other"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := probe.report(pkg, models, 4, nil, nil); err == nil || !strings.Contains(err.Error(), "not the pinned one") {
+	if _, err := probe.report(context.Background(), pkg, models, 4, nil, nil); err == nil || !strings.Contains(err.Error(), "not the pinned one") {
 		t.Fatalf("a package off its pin: %v", err)
 	}
 	probe.hasEngine = func() (bool, error) { return false, nil }
-	if _, err := probe.report(pkg, models, 4, nil, nil); !errors.Is(err, ErrNeuralEngineUnsupported) {
+	if _, err := probe.report(context.Background(), pkg, models, 4, nil, nil); !errors.Is(err, ErrNeuralEngineUnsupported) {
 		t.Fatalf("no neural engine: %v", err)
 	}
 	probe.hasEngine = func() (bool, error) { return false, coreml.ErrUnsupported }
-	if _, err := probe.report(pkg, models, 4, nil, nil); !errors.Is(err, ErrNeuralEngineUnsupported) {
+	if _, err := probe.report(context.Background(), pkg, models, 4, nil, nil); !errors.Is(err, ErrNeuralEngineUnsupported) {
 		t.Fatalf("no Core ML: %v", err)
 	}
 }
@@ -143,7 +144,32 @@ func TestDebugNeuralEngine_UnsupportedHost(t *testing.T) {
 	host := aneHost
 	aneHost = func() bool { return false }
 	defer func() { aneHost = host }()
-	if _, err := DebugNeuralEngine(t.TempDir(), nil, nil); !errors.Is(err, ErrNeuralEngineUnsupported) {
+	if _, err := DebugNeuralEngine(context.Background(), t.TempDir(), nil, nil); !errors.Is(err, ErrNeuralEngineUnsupported) {
 		t.Fatalf("DebugNeuralEngine = %v, want unsupported", err)
+	}
+}
+
+// An interrupted run ends at once, inside a Core ML call too, and still
+// removes the model it compiled.
+func TestNeuralEngineReport_Interrupted(t *testing.T) {
+	pkg, models, probe, compiled := debugPackage(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	inPlan, release := make(chan struct{}), make(chan struct{})
+	defer close(release)
+	plan := probe.plan
+	probe.plan = func(compiled, function string) (coreml.Placement, error) {
+		close(inPlan)
+		<-release
+		return plan(compiled, function)
+	}
+	go func() {
+		<-inPlan
+		cancel()
+	}()
+	if r, err := probe.report(ctx, pkg, models, 4, nil, nil); !errors.Is(err, context.Canceled) || r != nil {
+		t.Fatalf("an interrupted run: %+v, %v", r, err)
+	}
+	if _, err := os.Stat(compiled); !os.IsNotExist(err) {
+		t.Fatalf("the temporary compiled model is still there: %v", err)
 	}
 }

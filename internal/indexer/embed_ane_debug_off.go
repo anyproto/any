@@ -3,6 +3,7 @@
 package indexer
 
 import (
+	"context"
 	"errors"
 	"fmt"
 )
@@ -15,6 +16,6 @@ var ErrNeuralEngineUnsupported = errors.New("unsupported")
 type NeuralEngineReport struct{}
 
 // DebugNeuralEngine: this build has no local embedder to measure.
-func DebugNeuralEngine(string, []string, func(string, ...any)) (*NeuralEngineReport, error) {
+func DebugNeuralEngine(context.Context, string, []string, func(string, ...any)) (*NeuralEngineReport, error) {
 	return nil, fmt.Errorf("%w: this build has no local embedder (it is built with -tags llamacpp)", ErrNeuralEngineUnsupported)
 }
