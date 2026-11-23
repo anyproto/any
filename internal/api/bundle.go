@@ -137,10 +137,12 @@ type BundleEnsureResponse struct {
 // BundleListResponse is the reply to GET /v1/spaces/:spaceId/bundles.
 type BundleListResponse struct {
 	Bundles []Bundle `json:"bundles"`
-	// Synced reports whether the registry converged before this read
-	// (the read-side lock): true means an absent bundle is definitively
-	// not installed; false (the wait expired — cold offline device)
-	// means absence is provisional.
+	// Synced reports whether the registry this read answered from is
+	// one to trust (the read-side lock): true means an absent bundle is
+	// definitively not installed. It is false only in a 1-1 space whose
+	// bounded convergence wait ran out, where absence is provisional.
+	// Any other space answers true: one whose registry has not reached
+	// this device does not answer at all (409 bundle.not_ready).
 	Synced bool `json:"synced"`
 }
 

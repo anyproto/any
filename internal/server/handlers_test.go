@@ -115,9 +115,9 @@ func newTestDepsCfg(t testing.TB, mutate func(*config.Config)) (*deps, func()) {
 		cfg:       cfg,
 		runCtx:    context.Background(),
 	}
-	// Publish without the engine goroutines bootAccount spawns (the
-	// process interest and the derived-setup pass) — they reach the
-	// network and are not what handler tests exercise.
+	// Publish without the engine goroutine bootAccount spawns (the
+	// process interest) — it reaches the network and is not what
+	// handler tests exercise.
 	d.eng = eng
 	d.sdk = eng.sdk
 	d.push = eng.push

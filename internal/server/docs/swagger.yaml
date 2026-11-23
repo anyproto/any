@@ -329,6 +329,8 @@ components:
             Created is true when this account had no local state before this
             call (fresh generation or first restore on this device).
           type: boolean
+        login:
+          $ref: '#/components/schemas/api.LoginState'
         mnemonic:
           description: |-
             Mnemonic is returned exactly once: when the server generated a
@@ -350,9 +352,14 @@ components:
           type: array
           uniqueItems: false
         authorized:
+          description: |-
+            Authorized is true once an account is open for requests. A login
+            that still waits for its first sync reads false, with Login set.
           type: boolean
         capabilities:
           $ref: '#/components/schemas/api.AuthCapabilities'
+        login:
+          $ref: '#/components/schemas/api.LoginState'
         mode:
           description: Mode is the server's ownership mode, fixed at launch.
           enum:
@@ -629,10 +636,12 @@ components:
           uniqueItems: false
         synced:
           description: |-
-            Synced reports whether the registry converged before this read
-            (the read-side lock): true means an absent bundle is definitively
-            not installed; false (the wait expired — cold offline device)
-            means absence is provisional.
+            Synced reports whether the registry this read answered from is
+            one to trust (the read-side lock): true means an absent bundle is
+            definitively not installed. It is false only in a 1-1 space whose
+            bounded convergence wait ran out, where absence is provisional.
+            Any other space answers true: one whose registry has not reached
+            this device does not answer at all (409 bundle.not_ready).
           type: boolean
       type: object
     api.BundleResolveRequest:
@@ -1601,6 +1610,8 @@ components:
           type: boolean
         crdtVersion:
           $ref: '#/components/schemas/api.CRDTVersionState'
+        login:
+          $ref: '#/components/schemas/api.LoginState'
         networkId:
           description: |-
             NetworkId is the any-sync network this server joins: the networkId
@@ -2206,6 +2217,37 @@ components:
           additionalProperties: {}
           description: Record is the document after the update.
           type: object
+      type: object
+    api.LoginState:
+      description: |-
+        Login is set while a login waits for the account's first sync;
+        Account is empty until the wait ends (see LoginState).
+      properties:
+        accountId:
+          description: AccountId is the account being logged in.
+          type: string
+        globalPeers:
+          type: integer
+        localPeers:
+          type: integer
+        networkPeers:
+          description: |-
+            NetworkPeers, LocalPeers and GlobalPeers count the live
+            connections the registry can sync over: sync nodes, local-network
+            devices of the account, and its devices reached over the internet.
+          type: integer
+        sync:
+          description: |-
+            Sync is the sync state of the account's space registry, as last
+            sampled: offline means no sync node and no direct peer is
+            connected, so the wait cannot end yet.
+          enum:
+          - unknown
+          - offline
+          - syncing
+          - synced
+          - error
+          type: string
       type: object
     api.MarkdownContent:
       properties:
@@ -6139,6 +6181,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
           description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Conflict
         "500":
           content:
             application/json:
@@ -6292,6 +6340,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
           description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: Conflict
         "500":
           content:
             application/json:

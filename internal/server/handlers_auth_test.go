@@ -492,6 +492,9 @@ func TestAuth_SwitchInPlace(t *testing.T) {
 			t.Fatalf("A's %s stream terminal frame = %q %s, want closed{deauthorized}", name, got.Event, got.Data)
 		}
 	}
+	// B's phrase on a device that holds nothing of B is a login: B
+	// opens once its tech space has synced.
+	waitAuthorized(t, e, bId)
 	if rec := doJSON(t, e, http.MethodGet, "/v1/account", ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), bId) {
 		t.Fatalf("GET /v1/account after switch: %d %s", rec.Code, rec.Body.String())
 	}

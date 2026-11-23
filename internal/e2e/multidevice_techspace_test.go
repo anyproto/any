@@ -60,7 +60,8 @@ func walletMnemonic(t *testing.T, dataDir string) string {
 // startPeerWithMnemonic is startPeer authorizing as the same ACCOUNT
 // via `any init --mnemonic` — the real second-device restore flow:
 // same phrase derives the same account, the device key is freshly
-// generated.
+// generated. That is a login: the server opens once the account's tech
+// space has synced, and the peer is returned past that.
 func startPeerWithMnemonic(t *testing.T, bin, name, mnemonic string) *peer {
 	t.Helper()
 	dataDir := t.TempDir()
@@ -73,6 +74,7 @@ func startPeerWithMnemonic(t *testing.T, bin, name, mnemonic string) *peer {
 	t.Logf("peer %s: addr=%s data=%s (same account, fresh device key)", name, addr, dataDir)
 	srv := startServer(t, bin, addr, dataDir)
 	waitForReady(t, addr, 60*time.Second)
+	waitForAuthorized(t, "http://"+addr, 2*time.Minute)
 	return &peer{name: name, addr: addr, dataDir: dataDir, base: "http://" + addr, srv: srv}
 }
 

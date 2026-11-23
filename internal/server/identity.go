@@ -24,6 +24,15 @@ type Identity struct {
 	WalletPath string
 }
 
+// keyPath is the key file this identity's custody keeps in the account
+// dir: the wallet, or under managed custody the cached device key.
+func (id *Identity) keyPath() string {
+	if id.WalletPath != "" {
+		return id.WalletPath
+	}
+	return deviceKeyPath(id.Dir)
+}
+
 // ErrNoIdentity is the resolution outcome "nothing to boot": no wallet
 // selected and none unambiguously present. `run` starts unauthorized
 // and waits for POST /v1/auth; CLI paths print the hint instead.

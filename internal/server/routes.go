@@ -130,8 +130,10 @@ func buildEcho(d *deps) *echo.Echo {
 	// fields change — SDK-backed handlers see one engine for their
 	// whole lifetime and never a nil sdk. Without one, every /v1 route
 	// except the meta set and /v1/auth itself rejects with 401
-	// auth.required. Group middleware applies to routes registered
-	// after Use — keep this above the route registrations.
+	// auth.required — 503 auth.login_pending while the engine is a
+	// login waiting for its first sync. Group middleware applies to
+	// routes registered after Use — keep this above the route
+	// registrations.
 	//
 	// The exempt routes run OUTSIDE the gate on purpose: /v1/auth and
 	// /v1/shutdown are the ones that initiate a teardown, and a
@@ -180,6 +182,10 @@ func buildEcho(d *deps) *echo.Echo {
 					c.SetRequest(c.Request().WithContext(ctx))
 				}
 				return next(c)
+			}
+			if d.login.Load() != nil {
+				return writeError(c, http.StatusServiceUnavailable, "auth.login_pending",
+					"the account is logging in: the server waits for its first sync from a sync node or another device of the account — poll GET /v1/auth", nil)
 			}
 			return writeError(c, http.StatusUnauthorized, "auth.required",
 				"no account authorized — POST /v1/auth first", nil)

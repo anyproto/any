@@ -9,8 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anyproto/any-sync-sdk/auth"
-
 	"github.com/anyproto/any/internal/api"
 )
 
@@ -130,14 +128,18 @@ func writeDeadNodeconf(t *testing.T) string {
 }
 
 // startPeerOffline boots an UNAUTHORIZED `any` server against the dead
-// nodeconf, then onboards it via POST /v1/auth with the given mnemonic
-// (the auth path always generates a FRESH device key, so several
-// devices of one account get distinct peer ids).
+// nodeconf, then onboards it via POST /v1/auth: an empty mnemonic
+// creates an account, which is open at once; a mnemonic logs in to an
+// existing one, which stays closed until a device of the account
+// delivers its tech space (the auth path always generates a FRESH
+// device key, so several devices of one account get distinct peer
+// ids). The reply carries the created account's phrase, or the waiting
+// login.
 //
 // Deliberately does NOT go through startServerInit — that helper
 // overwrites config.yaml with the staging nodeconf, and this test must
 // stay genuinely offline.
-func startPeerOffline(t *testing.T, bin, name, nodeconfPath, mnemonic string) *peer {
+func startPeerOffline(t *testing.T, bin, name, nodeconfPath, mnemonic string) (*peer, api.AuthResponse) {
 	t.Helper()
 	dataDir := t.TempDir()
 	addr := freeLoopbackAddr(t)
@@ -156,16 +158,17 @@ func startPeerOffline(t *testing.T, bin, name, nodeconfPath, mnemonic string) *p
 	if resp.AccountId == "" {
 		t.Fatalf("peer %s: auth returned empty accountId", name)
 	}
-	return &peer{name: name, addr: addr, dataDir: dataDir, base: "http://" + addr, srv: srv}
+	return &peer{name: name, addr: addr, dataDir: dataDir, base: "http://" + addr, srv: srv}, resp
 }
 
 // TestE2E_MultipeerP2PColdRestore proves account restore over pure
-// LAN: device A onboards from a mnemonic OFFLINE (dead nodeconf),
-// creates a space; then device B — empty data dir, same mnemonic —
-// onboards and must converge the space list and content from A alone,
-// over real mDNS discovery, with no coordinator or sync node ever
-// reachable. Gated like TestE2E_MultipeerP2P (needs a multicast-capable
-// interface); no staging fixture required.
+// LAN: device A creates an account OFFLINE (dead nodeconf) and a space
+// in it; then device B — empty data dir, A's phrase — logs in. With no
+// coordinator or sync node ever reachable, B's login waits until A
+// delivers the account's tech space over real mDNS discovery, and B
+// must then converge the space list and content from A alone. Gated
+// like TestE2E_MultipeerP2P (needs a multicast-capable interface); no
+// staging fixture required.
 func TestE2E_MultipeerP2PColdRestore(t *testing.T) {
 	if os.Getenv("ANY_E2E_P2P") == "" {
 		t.Skip("set ANY_E2E_P2P=1 to run the real-mDNS multipeer test")
@@ -175,22 +178,26 @@ func TestE2E_MultipeerP2PColdRestore(t *testing.T) {
 	}
 
 	nodeconfPath := writeDeadNodeconf(t)
-	mnemonic, err := auth.GenerateMnemonic()
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	bin := buildBinary(t)
-	devA := startPeerOffline(t, bin, "devA", nodeconfPath, mnemonic)
+	devA, created := startPeerOffline(t, bin, "devA", nodeconfPath, "")
 	defer devA.stop(t)
+	if created.Mnemonic == "" || created.Login != nil {
+		t.Fatalf("device A: a created account must be open at once: %+v", created)
+	}
 
 	var sp api.SpaceInfo
 	mustJSON(t, http.MethodPost, devA.base+"/v1/spaces",
 		`{"name":"cold-restore"}`, http.StatusCreated, &sp)
 
 	// Device B: brand-new device of the same account, fully offline.
-	devB := startPeerOffline(t, bin, "devB", nodeconfPath, mnemonic)
+	// Its login waits for the tech space, and A is the only source.
+	devB, login := startPeerOffline(t, bin, "devB", nodeconfPath, created.Mnemonic)
 	defer devB.stop(t)
+	if login.AccountId != created.AccountId || login.Login == nil {
+		t.Fatalf("device B: a login with no node reachable must wait: %+v", login)
+	}
+	waitForAuthorized(t, devB.base, 2*time.Minute)
 
 	// Distinct peer ids are a hard requirement — p2p filters "self" by
 	// peerId, so devices sharing one can never pair.

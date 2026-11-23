@@ -39,6 +39,7 @@ func (d *deps) authStatus(c echo.Context) error {
 	resp := api.AuthStatusResponse{
 		Authorized:   account != "",
 		AccountId:    account,
+		Login:        d.loginState(),
 		Mode:         d.cfg.Mode,
 		Capabilities: d.capabilities(),
 		Accounts:     []api.AuthAccount{},
@@ -193,6 +194,9 @@ func (d *deps) authorize(c echo.Context) error {
 	switch {
 	case req.Mnemonic != "":
 		identity, open, created = d.credentialFor(c, target, req.Mnemonic, derivedKey, idx)
+		// A phrase on a device that holds nothing of the account is a
+		// login: the engine stays closed until the account has synced.
+		open = loginCredential(identity.Dir, identity.keyPath(), open)
 
 	case req.AccountId != "":
 		identity = d.identityForAccount(c, req.AccountId)
@@ -228,9 +232,10 @@ func (d *deps) authorize(c echo.Context) error {
 	}
 	switch {
 	case errors.Is(err, errAlreadyAuthorized):
-		// The account came up between the pre-check and the lock
-		// (or a same-account replace raced another): a no-op.
-		return c.JSON(http.StatusOK, api.AuthResponse{AccountId: eng.account, AlreadyAuthorized: true})
+		// The account came up between the pre-check and the lock (or a
+		// same-account replace raced another), or it is a login still
+		// waiting for its first sync: a no-op.
+		return c.JSON(http.StatusOK, api.AuthResponse{AccountId: eng.account, AlreadyAuthorized: true, Login: d.loginState()})
 	case errors.Is(err, errAccountMismatch):
 		return d.refuseOtherAccount(c, target, req.Replace)
 	case err != nil:
@@ -240,6 +245,7 @@ func (d *deps) authorize(c echo.Context) error {
 		AccountId: eng.account,
 		Created:   created,
 		Mnemonic:  generated,
+		Login:     d.loginState(),
 	})
 }
 

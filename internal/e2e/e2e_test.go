@@ -658,12 +658,14 @@ func TestE2E_InitMnemonicIndex(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// run auto-selects the sole account and boots authorized as it —
-	// proves the on-disk wallet really derives the index-2 id.
+	// run auto-selects the sole account and boots it — proves the
+	// on-disk wallet really derives the index-2 id. A phrase on a device
+	// with nothing of the account is a login, open after its first sync.
 	addr := freeLoopbackAddr(t)
 	srv := startServerInit(t, bin, addr, dataDir, false)
 	defer srv.stop(t)
 	waitForReady(t, addr, 30*time.Second)
+	waitForAuthorized(t, "http://"+addr, 2*time.Minute)
 
 	var acct map[string]any
 	mustJSON(t, http.MethodGet, "http://"+addr+"/v1/account", "", http.StatusOK, &acct)

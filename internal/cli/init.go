@@ -65,7 +65,7 @@ forces an additional fresh account.`,
 			// Explicit wallet override: single-wallet manual mode, no
 			// per-account nesting.
 			if cfg.Auth.WalletPath != "" {
-				return initWallet(cmd, config.WalletPath(cfg, root), passkey, mnemonic, index, mnemonic == "")
+				return initWallet(cmd, root, config.WalletPath(cfg, root), passkey, mnemonic, index, mnemonic == "")
 			}
 
 			if mnemonic != "" {
@@ -75,9 +75,10 @@ forces an additional fresh account.`,
 				}
 				if config.HasRootWallet(root) && rootWalletID(cmd, root, passkey) == id {
 					fmt.Fprintf(cmd.ErrOrStderr(), "already authorized as %s (default wallet)\n", id)
-					return printInitResult(cmd, id, false)
+					return printInitResult(cmd, id, false, server.LoginPending(root))
 				}
-				return initWallet(cmd, config.WalletPath(config.Config{}, config.AccountDir(root, id)), passkey, mnemonic, index, false)
+				dir := config.AccountDir(root, id)
+				return initWallet(cmd, dir, config.WalletPath(config.Config{}, dir), passkey, mnemonic, index, false)
 			}
 
 			accounts, err := config.ListAccounts(root)
@@ -101,7 +102,8 @@ forces an additional fresh account.`,
 			if err != nil {
 				return err
 			}
-			return initWallet(cmd, config.WalletPath(config.Config{}, config.AccountDir(root, id)), passkey, fresh, auth.DefaultAccountIndex, true)
+			dir := config.AccountDir(root, id)
+			return initWallet(cmd, dir, config.WalletPath(config.Config{}, dir), passkey, fresh, auth.DefaultAccountIndex, true)
 		},
 	}
 	addServerFlags(c)
@@ -112,12 +114,20 @@ forces an additional fresh account.`,
 	return c
 }
 
-// initWallet opens-or-creates the wallet and reports
+// initWallet opens-or-creates the wallet in the account dir and reports
 // {accountId, created} on stdout. index is the derivation index used
 // with mnemonic on creation. printPhrase is set when the phrase is
 // news to the user (fresh generation, not a restore) so the backup
-// warning prints to stderr on first creation.
-func initWallet(cmd *cobra.Command, walletPath, passkey, mnemonic string, index uint32, printPhrase bool) error {
+// warning prints to stderr on first creation; without it the phrase is
+// an existing account's, and a dir that holds nothing of the account is
+// marked as a login before the wallet is written: the server then waits
+// for the account's first sync, and the result says loginPending.
+func initWallet(cmd *cobra.Command, dir, walletPath, passkey, mnemonic string, index uint32, printPhrase bool) error {
+	if !printPhrase {
+		if err := server.MarkLoginPending(dir, walletPath); err != nil {
+			return err
+		}
+	}
 	provider, firstRun, err := server.OpenWallet(walletPath, passkey, mnemonic, index)
 	if err != nil {
 		return err
@@ -129,11 +139,15 @@ func initWallet(cmd *cobra.Command, walletPath, passkey, mnemonic string, index 
 	if err != nil {
 		return err
 	}
-	return printInitResult(cmd, id, firstRun)
+	return printInitResult(cmd, id, firstRun, server.LoginPending(dir))
 }
 
-func printInitResult(cmd *cobra.Command, accountId string, created bool) error {
-	out, err := json.MarshalIndent(map[string]any{"accountId": accountId, "created": created}, "", "  ")
+func printInitResult(cmd *cobra.Command, accountId string, created, loginPending bool) error {
+	result := map[string]any{"accountId": accountId, "created": created}
+	if loginPending {
+		result["loginPending"] = true
+	}
+	out, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
 		return err
 	}
