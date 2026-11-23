@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os/exec"
 	"os/signal"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -62,9 +63,12 @@ func newDebugNeuralEngineCmd() *cobra.Command {
 	return c
 }
 
-// embedderChildren lists the `any run embedder` processes on this
-// machine; none where they cannot be listed.
+// embedderChildren lists the `any run embedder` processes on this Mac;
+// none elsewhere, or where they cannot be listed.
 func embedderChildren() []int {
+	if runtime.GOOS != "darwin" {
+		return nil
+	}
 	raw, err := exec.Command("pgrep", "-f", "run embedder --model").Output()
 	if err != nil {
 		return nil
