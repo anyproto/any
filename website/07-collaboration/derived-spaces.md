@@ -40,7 +40,7 @@ curl -s http://127.0.0.1:2046/v1/spaces/derived
 |-------|---------|
 | `name` | registry name |
 | `spaceId` | the derived id — computed once at engine boot, never created by this call |
-| `created` | a usable space row exists, materialized here or on any of the account's devices (rows sync) |
+| `created` | a usable space row exists, created here or on any of the account's devices (rows sync). `false` means no device had created the space as of this device's last sync of the space list |
 | `status` | the row's status (the `SpaceInfo.status` strings) when a row exists; a tombstoned row reports `created: false` |
 
 ```bash
@@ -50,10 +50,12 @@ curl -s -X POST http://127.0.0.1:2046/v1/spaces/derived/bao
 
 ```bash
 any space derived               # list
-any space derived create bao    # materialize
+any space derived create bao    # create
 ```
 
-**GET resolves, never creates.** **POST materializes lazily and idempotently** and returns the full single-space `SpaceInfo`. On first materialization the registry's display name is written as the space name; a later rename through `PATCH /v1/spaces/:id` wins. Repeat calls land on the same space. The typical consumer flow is one POST at boot, then use the id like any other space.
+**GET resolves, never creates.** **POST creates the space, or opens the one that exists,** and returns the full single-space `SpaceInfo`. With no row it creates: storage, the space index and the row are written locally, with no network, the registry's display name becomes the space name (a later rename through `PATCH /v1/spaces/:id` wins), and the space's [bundles](bundles.html) work at once. With a row the space was created before, here or on another device: nothing is written, and on a device that downloaded it the bundles answer once its registry has arrived. Repeat calls land on the same space.
+
+Creating is an explicit act: call POST when the user, or the product flow that owns the space, decides to create it — not on every boot. Two devices that both create while apart land on the same space, but each sets it up on its own, and their bundles can fork.
 
 | Status | Code | When |
 |--------|------|------|

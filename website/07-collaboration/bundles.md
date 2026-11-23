@@ -22,7 +22,7 @@ DELETE /v1/spaces/:spaceId/bundles/:bundleId              → 204
 POST   /v1/spaces/:spaceId/bundles/:bundleId/children     → 200 { objectId }
 ```
 
-Reads answer after the registry's convergence wait (below); `synced: true` means it converged, so an absent bundle is definitively not installed, and `false` (a cold offline device) means absence is provisional.
+Reads answer only from a registry that has reached this device (the registry gate, below), so a read that answers is definitive: an absent bundle is not installed, and `synced` is true. `synced: false` remains only in a 1-1 space whose convergence wait ran out, where absence is provisional.
 
 Bundle ids carry a slash — the version suffix is part of the id (`favorites/v1`), and ids are permanent, so a successor install takes a new one. In a path segment the slash is percent-encoded: `/bundles/favorites%2Fv1`. Request bodies take the id verbatim.
 
@@ -60,11 +60,17 @@ A bundle may declare a definition on its root — `parts`, `properties` or an `x
 
 With a winner already registered, Ensure **adopts** it and `installed` is `false`. For a reader or guest that is a pure read, so they resolve an install they could not create; a writer's adopt also fills in declarations the root lacks (a property handle), never patching what it has. Otherwise the server creates the root with the requested type, collections and properties, registers it, and replies `installed: true`. That path is a write, so a member without write permission gets `403`; use `GET …/bundles/:bundleId` instead. Definition existence and property formats are checked *before* the root is created, so a rejected request (`400 type.not_found`, `400 collection.not_found`, `410 object.deleted`, `400 property.format_violation`) never leaves an orphan.
 
-### The convergence gate
+### The registry gate
 
-Installing a created root first waits for the registry to converge — bounded at 30 s, cut to 3 s when no peer is connected. A member that ensures against state it has not synced would read "nothing installed" and mint a root competing with the one already out there. Adopting never waits; a read cannot fork anything. A space never set up converges to an empty registry, which is a valid answer.
+The registry rides the space's index tree. A device that ensures before that tree has reached it would read "nothing installed" and mint a root competing with the one already out there. So every bundle call — list, get, install, uninstall, children, resolve — answers `409 bundle.not_ready` on a space whose registry has not reached this device, for every role and both root strategies:
 
-When the wait cannot complete, who is asking decides: the space's **owner** installs anyway (only its own devices could compete, and the registry converges those), so an offline owner is never blocked. A member whose space index has never arrived is refused with `409 bundle.not_ready` and retries when the network is back; a member that holds the index installs against its local view, offline or not, so two members who set up apart fork and resolve the loser. A winner whose tree has not reached this device is likewise `409 bundle.not_ready` — its id would reject every write.
+- A space **created on this device** has its registry from the moment it is created, so its bundle calls work at once, with no network.
+- A space **downloaded** to this device — a join, or a space another device of the account created — has it once its index has arrived by sync. Until then the calls answer `409 bundle.not_ready`; retry. The check is local and never waits.
+- The account's own tech space always passes: an account is open only once its tech space was created here or has synced (see [Accounts](../auth/accounts.html)).
+
+A device that holds the registry installs against its local view, offline or not, so two members who set up apart fork and resolve the loser. A winner whose tree has not reached this device is likewise `409 bundle.not_ready` — its id would reject every write.
+
+A **1-1 space** has a rule of its own, because its index is never seeded: installing waits for the registry to converge (bounded at 30 s, cut to 3 s when no peer is connected), and when that expires a derived root installs anyway while a created root is refused.
 
 > **Note.** `rootId` is provisional until the space syncs. Two devices that install while genuinely apart each register a root; the registry converges on one winner and the other lands in `losers`. Re-read after sync.
 
@@ -72,14 +78,14 @@ When the wait cannot complete, who is asking decides: the space's **owner** inst
 
 `"derived": true` installs the bundle on the root **derived from its id**. That id is a pure function of (space, bundle id) — the derived root change carries no identity, signature or timestamp — so every device and every member computes it offline. Nothing can fork: each side registers the same id and `losers` stays empty.
 
-This is the answer for a space's chat and the only workable one for a [one-to-one](one-to-one.html): its ACL owner is a synthetic key nobody holds, both participants are writers, neither can take the owner escape, and a created root leaves both refused until they converge — which never happens while apart. With a derived root each side installs immediately and the two copies merge like any other CRDT tree.
+This is the answer for a space's chat and the only workable one for a [one-to-one](one-to-one.html): its ACL owner is a synthetic key nobody holds, both participants are writers, and a created root leaves both refused until they converge — which never happens while apart. With a derived root each side installs immediately and the two copies merge like any other CRDT tree.
 
 The price is permanence, in two directions:
 
 - **No uninstall.** A derived tree cannot be deleted, so the bundle id stays bound to that root for the space's lifetime. Use it for setups that must exist on both sides of a partition, not for anything a user may remove.
 - **No migration.** A bundle already installed on a created root is **adopted**, not moved: `installed: false`, `derived: false`, the created `rootId`. Moving content between roots is the client's decision.
 
-If a created and a derived root are both claimed for one id, the derived one wins on every device and the created one becomes an ordinary loser. A derived install runs the same convergence wait but installs when it expires; a blind claim can therefore demote a created install this device had not seen — nothing is destroyed, but for unmergeable content such as chat the pointer moving amounts to the same thing. That is the deliberate trade that lets an offline 1-1 have a chat at all.
+If a created and a derived root are both claimed for one id, the derived one wins on every device and the created one becomes an ordinary loser. In a 1-1, a derived install runs the convergence wait but installs when it expires; a blind claim can therefore demote a created install this device had not seen — nothing is destroyed, but for unmergeable content such as chat the pointer moving amounts to the same thing. That is the deliberate trade that lets an offline 1-1 have a chat at all.
 
 > **Why it matters.** A hosted chat service allocates one channel id and everyone uses it. Two encrypted peers that have never spoken cannot ask anyone for an id — but they can both compute one. Derivation replaces the allocator.
 
@@ -97,7 +103,7 @@ GET  /v1/catalog/:usecaseId         → 200 usecase             404 catalog.not_
 POST /v1/catalog/:usecaseId/setup   → 200 { usecase, bundles: [...] }      body { spaceId }
 ```
 
-Setup walks the dependency closure (dependencies first) against one convergence wait and runs Ensure's adopt-or-install per bundle; it is idempotent, and a failure names the step in `details.bundleId` while the steps before it stand, so the next call resumes. Each reply entry carries the registry row (`bundle`), `installed`, and — for a bundle that declares a definition — `typeId` or `collectionId` (the root id, whichever kind it declares) plus `properties` (xKey → property id). An install whose `xKey` a type or collection in the space already holds is `409 type.xkey_conflict` with `details.existingTypeId` or `details.existingCollectionId`; its message names the rename that frees the handle (`POST …/properties/<id>/set/type`, or `…/set/collection`, with `{"patch":{"xkey":"<new handle>"}}`). Type and collection create, a client bundle install or adopt and a handle change all refuse a catalog handle, so a user definition never takes one that way. Which usecases a space has reads off `GET …/bundles`. CLI: `any catalog list | get | setup`.
+Setup walks the dependency closure (dependencies first) against one pass of the registry gate and runs Ensure's adopt-or-install per bundle; it is idempotent, and a failure names the step in `details.bundleId` while the steps before it stand, so the next call resumes. Each reply entry carries the registry row (`bundle`), `installed`, and — for a bundle that declares a definition — `typeId` or `collectionId` (the root id, whichever kind it declares) plus `properties` (xKey → property id). An install whose `xKey` a type or collection in the space already holds is `409 type.xkey_conflict` with `details.existingTypeId` or `details.existingCollectionId`; its message names the rename that frees the handle (`POST …/properties/<id>/set/type`, or `…/set/collection`, with `{"patch":{"xkey":"<new handle>"}}`). Type and collection create, a client bundle install or adopt and a handle change all refuse a catalog handle, so a user definition never takes one that way. Which usecases a space has reads off `GET …/bundles`. CLI: `any catalog list | get | setup`.
 
 ### Bookmarks
 
@@ -162,11 +168,11 @@ curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/bundles/notes%2Fv1/resolv
 # → 204
 ```
 
-The server never merges; it enforces timing. A losing root arrives change by change, and a merge made from a half-arrived tree is a half-merge, so resolve is refused until the SDK reports the root fully synced and it has been observed as a loser for a five-minute grace period. The clock starts when the conflict first became visible on this device (any `GET …/bundles[/:id]` or the boot pass counts), not at the first resolve call. After a timing refusal the server keeps retrying in the background — in memory, dropped on restart — so clients retry too.
+The server never merges; it enforces timing. A losing root arrives change by change, and a merge made from a half-arrived tree is a half-merge, so resolve is refused until the SDK reports the root fully synced and it has been observed as a loser for a five-minute grace period. The clock starts when the conflict first became visible on this device (any `GET …/bundles[/:id]` counts), not at the first resolve call. After a timing refusal the server keeps retrying in the background — in memory, dropped on restart — so clients retry too.
 
 | Status | Code | When |
 |--------|------|------|
-| 409 | `bundle.not_ready` | registry not converged (non-owner), or the winner's tree has not arrived |
+| 409 | `bundle.not_ready` | the space's registry has not reached this device, or the winner's tree has not arrived |
 | 409 | `bundle.loser_not_ready` | resolve: loser not fully synced, or within the grace period; uninstall: a loser's tree has not arrived, nothing deleted — retry |
 | 409 | `bundle.not_loser` | the winner, or a root never claimed for this bundle |
 | 404 | `bundle.not_found` | unknown bundle id on GET / resolve / children / uninstall |
@@ -187,7 +193,7 @@ Resolving an already-resolved root returns 204 — the call is idempotent.
 
 ## Uninstall
 
-`DELETE …/bundles/:bundleId` deletes the install: every losing root, then the winner, and only once every one of them is on this device, so a refusal deletes nothing. The claim set is add-only, so deleting the winner object alone also reads as uninstalled but leaves its live losers claimed, and the next install inherits them as losers for a client's fork merge to bring back. Losers go first, so a device that sees the bundle as uninstalled never finds a loser left behind, and the next ensure mints a fresh root with no losers. Idempotent: 204 for a bundle whose winner is already gone, with its losers swept, so call it without a `GET` first: a row whose winner died through the object route reads 404 on `GET` and 204 here. An uninstall discards, so unlike resolve it has no grace. It runs behind ensure's convergence gate: a member other than the owner is `409 bundle.not_ready` until its registry has converged; a bundle the registry does not list is `404 bundle.not_found`. While a loser's tree has not reached this device the call is `409 bundle.loser_not_ready`; while the winner's has not, `409 bundle.not_ready`; retry either.
+`DELETE …/bundles/:bundleId` deletes the install: every losing root, then the winner, and only once every one of them is on this device, so a refusal deletes nothing. The claim set is add-only, so deleting the winner object alone also reads as uninstalled but leaves its live losers claimed, and the next install inherits them as losers for a client's fork merge to bring back. Losers go first, so a device that sees the bundle as uninstalled never finds a loser left behind, and the next ensure mints a fresh root with no losers. Idempotent: 204 for a bundle whose winner is already gone, with its losers swept, so call it without a `GET` first: a row whose winner died through the object route reads 404 on `GET` and 204 here. An uninstall discards, so unlike resolve it has no grace. It runs behind the registry gate: `409 bundle.not_ready` until the space's registry has reached this device; a bundle the registry does not list is `404 bundle.not_found`. While a loser's tree has not reached this device the call is `409 bundle.loser_not_ready`; while the winner's has not, `409 bundle.not_ready`; retry either.
 
 ```bash
 curl -s -X DELETE http://127.0.0.1:2046/v1/spaces/$SPACE/bundles/notes%2Fv1
@@ -198,7 +204,7 @@ curl -s -X DELETE http://127.0.0.1:2046/v1/spaces/$SPACE/bundles/notes%2Fv1
 
 Nothing stops two members from ensuring the same bundle; the registry converges and reports a loser. To avoid the conflict entirely, either agree on one installer out of band, or ask for a `derived` root — the id both would compute anyway. Bundle records are permanent and `roots` only grows, so treat ids as a small fixed vocabulary, not a scratch namespace.
 
-On boot, for each well-known [derived space](derived-spaces.html) the account has, the server waits for the space list and that space's index to converge and reads its registry, so a client ensuring right after a restore meets the converged registry instead of an empty one. It installs nothing and deletes nothing itself.
+A device that logs in to an account serves nothing until the account's space list has synced, and then refuses bundle calls on each space until that space's registry has arrived. So a client ensuring right after a login adopts what the account already has instead of installing next to it. The server installs nothing and deletes nothing itself.
 
 ## Account-level bundles
 

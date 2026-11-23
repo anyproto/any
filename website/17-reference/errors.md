@@ -68,6 +68,7 @@ Panics are converted to `500 internal` with a generic message.
 | `request.too_large` | 413 | body over the 1 MB limit |
 | `request.unsupported_media_type` | 415 | a body whose `Content-Type` is missing or not `application/json` |
 | `auth.required` | 401 | server unauthorized — `POST /v1/auth` first |
+| `auth.login_pending` | 503 | a login waits for the account's first sync — poll `GET /v1/auth` |
 | `auth.already_authorized` | 409 | `{}` while an account runs — a fresh account is never minted in place |
 | `auth.not_managed` | 403 | standalone server: a different account on `POST`, or `DELETE` — switching means a restart |
 | `auth.account_mismatch` | 409 | managed server runs another account; pass `replace: true` to switch |
@@ -131,7 +132,7 @@ Panics are converted to `500 internal` with a generic message.
 | `record.deleted` | 410 | a write addressed a tombstoned record; the id is burned for good |
 | `record.wrong_object` | 400 | a `modify` or `delete-records` on a shared dataset names a record of another object — a record id is the plain id or the `<objectId>/<recordId>` of the request's own `objectId`, and a plain id never holds `/` (`details.objectId`, `details.dataset`) |
 | `bundle.not_found` | 404 | no live install for the bundle id in this space; on uninstall, a bundle never registered |
-| `bundle.not_ready` | 409 | registry not converged, or the winner's tree is not local yet — retry |
+| `bundle.not_ready` | 409 | the space's registry has not reached this device, or the winner's tree is not local yet — retry |
 | `bundle.loser_not_ready` | 409 | resolve: losing root not fully synced / grace period not elapsed; uninstall: a loser's tree not local, nothing deleted — retry |
 | `bundle.not_loser` | 409 | resolve targeted the winner or an unclaimed root |
 | `bundle.reserved` | 409 | a client ensure with an id under the server's `system:` prefix |

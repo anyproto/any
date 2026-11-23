@@ -36,7 +36,7 @@ Every error response — regardless of status code — has the same body:
 | 500    | Internal error — unexpected SDK or server failure; typed: `auth.device_key_corrupt`, `auth.network_pin_corrupt`, `sdk.store_corrupt`, `server.internal` |
 | 501    | `sdk.not_implemented` — `GET …/sync-status/peers` |
 | 502    | `access.unavailable`                                           |
-| 503    | Request cancelled or the engine tearing down (`server.unavailable`); embedder unreachable (`index.embedder_unavailable`) |
+| 503    | Request cancelled or the engine tearing down (`server.unavailable`); embedder unreachable (`index.embedder_unavailable`); a login waits for the account's first sync (`auth.login_pending`) |
 | 507    | `storage.no_space` — the device has no disk space left (`POST /v1/auth`) |
 
 No caller authentication in v1 (loopback is the trust boundary). The
@@ -69,6 +69,7 @@ request.too_large                # 413 — body over the 1 MB cap
 request.unsupported_media_type   # 415 — a body whose Content-Type is missing or not application/json (file attach, the avatar upload and the local-store import take raw bodies)
 
 auth.required                    # 401 — server unauthorized; POST /v1/auth first
+auth.login_pending               # 503 — a login waits for the account's first sync; poll GET /v1/auth
 auth.already_authorized          # 409 — `{}` while an account runs; a fresh account is never minted in place
 auth.not_managed                 # 403 — standalone server: a different account on POST, or DELETE (switching = restart)
 auth.account_mismatch            # 409 — managed server runs another account; pass replace:true to switch

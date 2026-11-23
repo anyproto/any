@@ -209,9 +209,10 @@ vocabulary (`request.unknown_field`) are served with
 which endpoints are strict, declared at discovery time. Not available
 in the mobile build (404).
 
-`GET /v1/health` → `{status, version, startedAt, account, bootstrapping,
-crdtVersion?}`. It works on an unauthorized server too — `account` is
-then `""`.
+`GET /v1/health` → `{status, version, startedAt, account, login?,
+bootstrapping, crdtVersion?}`. It works on an unauthorized server too —
+`account` is then `""`. `login` is present while a login waits for the
+account's first sync (§ Auth); `account` stays `""` until it ends.
 
 `networkId` (string, always present): the any-sync network this server
 joins — the `networkId` of the nodeconf it resolved at startup, the
@@ -244,7 +245,7 @@ and a client shows "upgrade required" off this field. See
 | Method | Path        | Purpose                                                                 |
 |--------|-------------|-------------------------------------------------------------------------|
 | GET    | `/v1/auth`  | authorization state, ownership mode + capabilities, local accounts      |
-| POST   | `/v1/auth`  | generate / restore / select an account, boot SDK; `replace` switches; `409 sdk.crdt_version_newer` for an account a newer release wrote |
+| POST   | `/v1/auth`  | create an account, log in to one with its phrase, or select a local one, boot SDK; `replace` switches; `409 sdk.crdt_version_newer` for an account a newer release wrote |
 | DELETE | `/v1/auth`  | tear the account down in place, stay up unauthorized (managed only)     |
 
 A server started without a resolvable account (fresh data dir, several
@@ -253,6 +254,33 @@ accounts and no selector, or **any managed server** — see `02-server.md`
 `/v1/shutdown`, `/v1/openapi.json` and `/v1/auth` returns
 `401 auth.required`. `POST /v1/auth` boots the account in place; no
 restart.
+
+**Creating an account and logging in to one are different paths.**
+
+- **Create** (`{}`): works with no network. The account is open when
+  the call returns.
+- **Log in** (`mnemonic`, on a device that holds nothing of the
+  account): the account exists elsewhere, so the server keeps it
+  closed until its space registry (the tech space) has synced once,
+  from a sync node or from another device of the account reached
+  directly. Until then `GET /v1/auth` reads `authorized: false` with a
+  `login` object, and every guarded route answers
+  `503 auth.login_pending`. Nothing runs against the unsynced account:
+  no device registration, no push subscription, no indexing. The call
+  itself returns at once; poll `GET /v1/auth`. With no network the
+  wait does not end, and it survives a restart: a login cut off before
+  its first sync waits again on the next start. Once the sync has
+  happened the account dir records it, and every later start is
+  immediate, offline too.
+- A phrase on a device that already holds the account (its wallet or
+  device key, or its data) is not a login: the account opens at once.
+  So does `accountId`. The exception is an account whose own login has
+  not seen its first sync yet: it keeps waiting, however it is opened.
+
+So a client shows "waiting for sync" for a login, never an empty app.
+A phrase for an account that exists nowhere yet is a login too: with a
+network it opens once a sync node has acknowledged the new account;
+create accounts with `{}`.
 
 **Ownership gates the verbs.** On a managed server (`02-server.md`
 § Modes) every `POST` and `DELETE /v1/auth` requires the
@@ -274,6 +302,21 @@ a managed one allows.
     {"id":"A8g1…"} ] }                        //   <root>/<id>/ dirs; [] on managed
 ```
 
+```json
+// GET /v1/auth while a login waits for its first sync
+{ "authorized": false,
+  "login": { "accountId": "A8g1…",
+             "sync": "offline",                // the tech space: offline | syncing | synced | unknown | error
+             "networkPeers": 0,                // sync nodes connected
+             "localPeers": 0,                  // devices of the account on the local network
+             "globalPeers": 0 },               // devices of the account over the internet
+  "mode": "managed", "capabilities": { … }, "accounts": [] }
+```
+
+`login.sync: "offline"` means nothing the tech space could sync from is
+connected, so the wait cannot end yet. `GET /v1/health` carries the same
+`login` object, with an empty `account`.
+
 A managed server reports every capability `true` and an empty
 `accounts` list: it holds no keys, so the client owns the account list
 (build the picker from its keystore). Clients read this before rendering
@@ -282,10 +325,10 @@ is true.
 
 ```json
 // POST /v1/auth — mnemonic and accountId are mutually exclusive:
-{}                                    // generate a fresh account (index 1)
-{ "mnemonic":"w1 … w12" }             // restore at the default index (1):
+{}                                    // create a fresh account (index 1)
+{ "mnemonic":"w1 … w12" }             // log in at the default index (1):
                                       // same phrase ⇒ same account
-{ "mnemonic":"w1 … w12", "index":0 }  // restore an anytype-derived account
+{ "mnemonic":"w1 … w12", "index":0 }  // log in to an anytype-derived account
 { "accountId":"A8g1…" }               // select an existing local wallet
                                       //   (standalone only — 400 on managed)
 { "mnemonic":"w1 … w12",
@@ -296,9 +339,18 @@ is true.
   "created": true,        // no local state for this account before the call
   "mnemonic":"w1 … w12" } // ONLY when generated — shown once, back it up
 
+// → 200, a login: the account opens after its first sync
+{ "accountId":"A8g1…", "created": true,
+  "login": { "accountId":"A8g1…", "sync":"unknown", "networkPeers":0, "localPeers":0, "globalPeers":0 } }
+
 // → 200, the server already runs THIS account (nothing booted)
 { "accountId":"A8g1…", "created": false, "alreadyAuthorized": true }
 ```
+
+`login` in a reply means the account is not open yet. It carries the
+sync state at that instant, usually `unknown`; `GET /v1/auth` follows
+it. It also comes with `alreadyAuthorized` when the request names a
+login that is still waiting.
 
 **The target account is derived from the request before anything is
 decided**, so the reply while an account is running follows one table:
@@ -349,7 +401,9 @@ idempotent. A client must then delete its stored credential, or the
 account is not actually signed out on that device. A standalone server
 answers `403 auth.not_managed`: sign out by stopping it.
 
-Errors: `400 auth.bad_mnemonic` (BIP-39 validation),
+Errors: `503 auth.login_pending` (on every guarded route while a login
+waits for the account's first sync; `GET /v1/auth` reports the wait),
+`400 auth.bad_mnemonic` (BIP-39 validation),
 `400 request.invalid_field` (mnemonic+accountId together, index
 without mnemonic, `replace` without a credential, `accountId` on a
 managed server), `403 control.forbidden` (managed, token missing or
@@ -742,16 +796,26 @@ POST /v1/spaces/derived/:name  → 201 SpaceInfo   (404 space.derived_unknown,
   (`Service.DeriveId` — pure computation over the account keys);
   `created` reports whether a usable tech-space row exists —
   materialized here or on any of the account's devices (rows sync).
+  `created: false` means no device had created the space as of this
+  device's last sync of the space list; an account that logged in here
+  has synced it at least once (§ Auth).
   `status` is the row status when a row exists; a `deleted` row
   reports `created:false`.
-- **POST materializes lazily and idempotently** (`Service.Derive`) and
-  returns the full single-space `SpaceInfo`. On first materialization the registry's display name is
-  written as the space name (`DeriveRequest.Name` — not part of the
-  id derivation; a later rename via `PATCH /v1/spaces/:id` wins).
-  Repeat calls land on the same space; a tombstoned row is refused
-  with `409 space.deleted` rather than reported as success. Typical
-  consumer flow: one POST at boot, then use the id like any other
-  space.
+- **POST creates the space, or opens the one that exists**
+  (`Service.Derive`), and returns the full single-space `SpaceInfo`.
+  With no row it creates: storage, the space index and the row are
+  written locally, with no network, and the registry's display name
+  becomes the space name (`DeriveRequest.Name` — not part of the id
+  derivation; a later rename via `PATCH /v1/spaces/:id` wins). The
+  space's bundles work at once (§ Bundles). With a row the space was
+  created before, here or on another device: nothing is written, and
+  on a device that downloaded it the bundles answer once its registry
+  has arrived. Repeat calls land on the same space; a tombstoned row
+  is refused with `409 space.deleted` rather than reported as success.
+- **Creating is an explicit act.** Call POST when the user (or the
+  product flow that owns the space) decides to create it — not on every
+  boot. Two devices that both create while apart land on the same
+  space, but each sets it up on its own, and their bundles can fork.
 - **Derived spaces are permanent.** `DELETE /v1/spaces/:spaceId`
   refuses them with `409 space.derived_undeletable` — the
   deterministic id means delete + re-derive would replace history, and
@@ -1281,27 +1345,36 @@ instead). `name` is stamped as `any.name` on the root. The `id` is the whole
 identity — a marketplace id, an app slug, a versioned convention like
 `favorites/v1` — so there is no separate provenance field.
 
-Installing waits for the registry to converge first (bounded, 30s —
-3s when no peer is connected). The registry rides the space's index
-tree, and a member that ensures before that tree has ever reached it
-reads "nothing installed" and mints a root competing with the one
-already out there. The wait completes at once for a member that holds
-the index — once synced, a device installs against its local view,
-offline or not — and otherwise runs until a clean head-sync round and
-the `synced` rollup; a space that has never been set up converges to
-an empty registry, which is a valid answer, not a stall. Adopting a
-registered winner never waits.
+**The registry gate.** The registry rides the space's index tree, and
+a device that ensures before that tree has reached it reads "nothing
+installed" and mints a root competing with the one already out there.
+So every bundle call — list, get, install, uninstall, children,
+resolve — answers `409 bundle.not_ready` on a space whose registry has
+not reached this device, for every role and both root strategies:
 
-When the wait cannot complete, who is asking decides: the space's
-**owner** installs anyway (nobody else could have installed into a
-space only this account has, and its own devices converge through the
-registry), so an offline owner is never blocked. Any other member
-whose index has never arrived — a fresh joiner, either side of a 1-1
-before its first sync — is refused with `409 bundle.not_ready` and
-retries when the network is back. A **derived** root (below) is never refused *for lack
-of convergence* — there is no competing id it could mint — though it
-still reports `409 bundle.not_ready` when the live winner is a created
-root whose tree has not arrived.
+- A space **created on this device** (`POST /v1/spaces`, or a derived
+  space this device created) has its registry from the moment it is
+  created. Its bundle calls work at once, with no network.
+- A space **downloaded** to this device (a join, or a space another
+  device of the account created) has it once its index has arrived by
+  sync. Until then the calls answer `409 bundle.not_ready`; retry. The
+  check is a local read: it never waits.
+- The account's own tech space always passes: an account is open only
+  once its tech space was created here or has synced (§ Auth).
+
+Once the registry is here, a device installs against its local view,
+offline or not. The gate covers the registry, not the trees it names: a
+root or a child can still arrive after it (below). One call answers
+without the gate: an ensure for a bundle whose row this device already
+holds adopts it from that row, since adopting never installs.
+
+A **1-1 space** is the exception, with a rule of its own. Its index is
+never seeded, so installing waits for the registry to converge
+(bounded, 30s — 3s when no peer is connected), until a clean head-sync
+round and the `synced` rollup. When that wait expires, a **derived**
+root installs anyway — there is no competing id it could mint, and
+neither side of a 1-1 could otherwise install first — and a created
+root is refused with `409 bundle.not_ready`.
 
 Two members, or two devices, that install while apart or at the same
 moment each register a root; the registry converges on one winner and
@@ -1321,8 +1394,8 @@ side registers the same id, the claim set converges to one element and
 
 This is the shape for a space's chat, and the only workable one for a
 **1-1**: its ACL owner is a synthetic key nobody holds, so both
-participants are writers, neither takes the owner escape, and a created
-root leaves both refused until they converge. With a derived root each
+participants are writers, and a created root leaves both refused until
+they converge. With a derived root each
 side installs immediately and they meet on the one object; the two
 copies merge like any other CRDT tree.
 
@@ -1342,7 +1415,7 @@ If a created and a derived root are both claimed for one id, the
 derived one wins on every device and the created one becomes an
 ordinary resolvable loser. The verdict reads only the add-only claim
 set, so every device reaches the same one — but **the claim can be
-made blind**. A derived install runs the same convergence wait and,
+made blind**. In a 1-1, a derived install runs the convergence wait and,
 unlike a created one, installs anyway when it expires; if the space
 already carried a created install this device had not seen, that claim
 demotes it, irreversibly. The demoted root keeps its content and stays
@@ -1522,13 +1595,12 @@ settings, `POST /v1/catalog/:usecaseId/setup` — returns
 generic writes are refused.
 
 **Locked reads.** `GET …/bundles` and `GET …/bundles/:bundleId` answer
-only after the space's registry convergence wait (local fast path when
-already synced; fast expiry with no reachable peer), and the reply
-carries `synced`: true means an absent bundle is definitively not
-installed; false (cold offline device) means absence is provisional.
-The ensure POST runs the same wait as its convergence gate. The raw
-`bundles` dataset via `POST …/query[/subscribe]` is the live local
-view.
+only from a registry that has reached this device (the registry gate
+above): otherwise `409 bundle.not_ready`. So a read that answers is
+definitive — an absent bundle is not installed — and its `synced` is
+true. `synced: false` remains only in a 1-1 space whose convergence wait
+ran out, where absence is provisional. The raw `bundles` dataset via
+`POST …/query[/subscribe]` is the live local view.
 
 **Favourites** is a client-registered bundle (`favorites/v1`, created
 root, an `entries` part whose records live on the root itself) — a
@@ -1577,8 +1649,8 @@ resolve is refused with `409 bundle.loser_not_ready` until the SDK
 reports the root fully **synced** — an unknown or still-syncing tree
 never qualifies — and it has been observed as a loser for a grace
 period (5 min). The clock starts when the conflict first became
-visible on this device (any `GET …/bundles[/:id]` or the boot pass
-counts), not at the first resolve call. A restart restarts the clock,
+visible on this device (any `GET …/bundles[/:id]` counts), not at the
+first resolve call. A restart restarts the clock,
 which only ever delays a deletion.
 
 After a timing refusal the server keeps retrying in the background —
@@ -1604,9 +1676,9 @@ loser is deleted at the head this device holds. An uninstall made
 while apart from another device's install of the same id deletes what
 this device has seen; the other install arrives as a live claim the
 next install inherits as a loser (**Conflicts** above), and the next
-uninstall takes it. It runs behind ensure's convergence gate: a member
-other than the owner is `409 bundle.not_ready` until its registry has
-converged, the owner proceeds. Then `404 bundle.not_found` for a
+uninstall takes it. It runs behind the registry gate:
+`409 bundle.not_ready` until the space's registry has reached this
+device. Then `404 bundle.not_found` for a
 bundle the registry does not list, `409 bundle.not_ready` while the
 winner's tree has not reached this device,
 `409 bundle.loser_not_ready` while a loser's tree has not (any-sync's
@@ -1614,10 +1686,12 @@ settings delete needs the local head; retry),
 `409 object.derived_undeletable` for a derived install,
 `403 space.read_only` for a reader.
 
-**Restore.** On boot the server converges the space list and the space
-index for the well-known derived spaces, so a client ensuring right
-after a restore meets the account's converged registry instead of an
-empty one. It installs nothing and deletes nothing itself.
+**Restore.** A device that logs in to an account serves nothing until
+the account's space list has synced (§ Auth), and then refuses bundle
+calls on each space until that space's registry has arrived (the
+registry gate). So a client ensuring right after a login adopts what the
+account already has instead of installing next to it. The server
+installs nothing and deletes nothing itself.
 
 **Agreeing who installs.** Nothing stops two members from ensuring the
 same bundle; the registry converges and reports a loser. Clients that
@@ -1672,8 +1746,8 @@ collection?: {xKey, properties?}, miniapp?, parts?}]}` — `type` and
 no encoding in the path.
 
 **Setup** resolves the usecase's transitive dependency closure
-(dependencies first, deterministic), runs ONE registry-convergence
-wait for the whole list, then per bundle the § Bundles
+(dependencies first, deterministic), runs the registry gate ONCE
+for the whole list, then per bundle the § Bundles
 adopt-or-install: a live winner is adopted (a pure read; a writer's
 adopt also heals what the root lacks — a property by handle, a
 `choice` option key the catalog gained, a `miniapp` value, filing the
@@ -1688,9 +1762,8 @@ heal that fails (a permission or sync race) is not an error: the setup
 still answers 200 and the next setup retries it. A
 failure mid-walk leaves the dependencies it installed, names the step
 in `details.usecase` / `details.bundleId`, and the next call resumes.
-Readers adopt, writers install; when the wait expires the owner
-installs anyway and a member whose index has never arrived is
-`409 bundle.not_ready`.
+Readers adopt, writers install; on a space whose registry has not
+reached this device the setup is `409 bundle.not_ready` for everyone.
 
 ```jsonc
 // CatalogSetupResponse — every bundle the call touched, dependencies

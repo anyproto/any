@@ -1,6 +1,6 @@
 ---
 title: Accounts
-description: Create or restore an account from a mnemonic, authorize a running server over HTTP, and lay out several accounts in one data dir.
+description: Create an account or log in to one with its mnemonic, authorize a running server over HTTP, and lay out several accounts in one data dir.
 order: 10
 ---
 # Accounts
@@ -20,9 +20,9 @@ The derivation `index` defaults to **1**, the `any` account index. Index 0 is re
 ## First run: `any init`
 
 ```bash
-any init                                  # generate a fresh account, print the mnemonic once
-any init --mnemonic-stdin < phrase.txt    # restore an existing account (fresh device key)
-any init --mnemonic "w1 … w12" --index 0  # restore an anytype-derived account
+any init                                  # create a fresh account, print the mnemonic once
+any init --mnemonic-stdin < phrase.txt    # log in to an existing account (fresh device key)
+any init --mnemonic "w1 … w12" --index 0  # log in to an anytype-derived account
 any init --new                            # force an additional fresh account
 ```
 
@@ -33,7 +33,29 @@ any init --new                            # force an additional fresh account
 | `--index N` | derivation index for `--mnemonic`; default 1 |
 | `--new` | create an additional account even when one exists |
 
-Restoring writes a new `wallet.key` with a **freshly generated device key**. Never copy `wallet.key` between machines: that clones the device key, the two peers then present one network identity, and realtime sync between them breaks.
+Logging in writes a new `wallet.key` with a **freshly generated device key**. Never copy `wallet.key` between machines: that clones the device key, the two peers then present one network identity, and realtime sync between them breaks.
+
+## Create or log in
+
+Creating an account and logging in to one are different paths.
+
+**Create** (`any init`, `POST /v1/auth {}`) works with no network. The account is open at once: create spaces, set them up, and everything syncs when the network returns.
+
+**Log in** (`any init --mnemonic`, `POST /v1/auth {"mnemonic": …}` on a device that holds nothing of the account) means the account exists elsewhere, so the server keeps it closed until its list of spaces has synced once — from a sync node, or from another device of the account reached directly. Until then:
+
+- `GET /v1/auth` reads `authorized: false` and carries a `login` object naming the account and what it can sync from; `GET /v1/health` carries it too.
+- every other route answers `503 auth.login_pending`.
+- nothing works on the account yet: no device registration, no push subscription, no indexing.
+
+```json
+{ "authorized": false,
+  "login": { "accountId": "A8g1…", "sync": "offline",
+             "networkPeers": 0, "localPeers": 0, "globalPeers": 0 } }
+```
+
+`sync: "offline"` means nothing to sync from is connected, so the wait cannot end yet. With no network it does not end, and it survives a restart: a login cut off before its first sync waits again on the next start. Once the sync has happened the account dir records it (`login.json`), and every later start is immediate, offline too. `any init --mnemonic` prints `"loginPending": true` when the next `any run` will wait.
+
+A client shows this as "waiting for sync", never as an empty app. A phrase on a device that already holds the account opens at once, like `accountId`.
 
 ## Who owns the server: `--mode`
 
@@ -63,11 +85,11 @@ A managed server reports every capability `true` and an empty `accounts` list �
 `POST /v1/auth` boots the engine in place — no restart. `mnemonic` and `accountId` are mutually exclusive:
 
 ```bash
-# generate
+# create
 curl -s -X POST http://127.0.0.1:2046/v1/auth -H 'Content-Type: application/json' -d '{}'
-# restore at index 1 (device key freshly generated)
+# log in at index 1 (device key freshly generated)
 curl -s -X POST http://127.0.0.1:2046/v1/auth -H 'Content-Type: application/json' -d '{"mnemonic": "w1 … w12"}'
-# restore an anytype-derived account
+# log in to an anytype-derived account
 curl -s -X POST http://127.0.0.1:2046/v1/auth -H 'Content-Type: application/json' -d '{"mnemonic": "w1 … w12", "index": 0}'
 # select a wallet already on disk (standalone only)
 curl -s -X POST http://127.0.0.1:2046/v1/auth -H 'Content-Type: application/json' -d '{"accountId": "A8g1…"}'
@@ -82,7 +104,7 @@ curl -s -X POST http://127.0.0.1:2046/v1/auth -H "X-Any-Control-Token: $TOKEN" \
   "mnemonic": "w1 … w12" }
 ```
 
-`created` reports that the account had no local state before this call. `mnemonic` is present **only** when the server generated it. `index` is valid only together with `mnemonic`; a selected account's index is baked into its wallet.
+`created` reports that the account had no local state before this call. `mnemonic` is present **only** when the server generated it. A reply that carries `login` is a login that still waits for its first sync (above): the account is not open yet. `index` is valid only together with `mnemonic`; a selected account's index is baked into its wallet.
 
 While an account is running, the reply follows the account the request derives to — the server never reads a wallet or boots anything to decide:
 
@@ -98,8 +120,8 @@ The same account is always a no-op — a retry never drops your streams, and `al
 CLI equivalents:
 
 ```bash
-any auth login                            # generate
-any auth login --mnemonic-stdin           # restore
+any auth login                            # create
+any auth login --mnemonic-stdin           # log in
 any auth login --account A8g1…            # select (standalone)
 ANY_CONTROL_TOKEN=… any auth login --mnemonic-stdin --replace   # switch (managed)
 ANY_CONTROL_TOKEN=… any auth logout       # DELETE /v1/auth (managed)

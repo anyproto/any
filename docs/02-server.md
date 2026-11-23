@@ -150,6 +150,26 @@ account is standalone-only — a managed login with its phrase lands in
    is unreadable (`500 auth.network_pin_corrupt`, never rewritten from
    config), remove `network.json` and start the server on the account's
    network.
+   **A login waits for the account's first sync.** Creating an account
+   and logging in to one are different paths. A created account
+   (`any init`, `POST /v1/auth {}`) is open at once, with no network.
+   Logging in with a phrase on a device that holds nothing of the
+   account (`any init --mnemonic`, `POST /v1/auth {mnemonic}`) writes
+   `login.json` as `pending` in the account dir before the keys exist.
+   The engine then boots but stays closed: `GET /v1/auth` reads
+   `authorized: false` with a `login` object, every guarded route
+   answers `503 auth.login_pending`, and the device registration, push
+   and the indexer are not started (the index is opened, and a local
+   embedder may fetch its model meanwhile). Once the account's tech space has
+   synced from a sync node or from another device of the account
+   reached directly, `login.json` says `complete` and the engine
+   opens. A pending login survives a restart and waits again, with or
+   without a network; a completed one starts at once, offline too. An
+   account dir without `login.json` — created here, or from before the
+   file existed — is complete, and a `login.json` that cannot be read
+   counts as pending. Local tech-space storage is not the
+   signal: the SDK creates it on every first open, so a login cut off
+   before its first sync holds storage with nothing synced in it.
 4. Without an account: start **unauthorized**. Every `/v1` route except
    `/v1/health`, `/v1/shutdown`, `/v1/openapi.json`, `/v1/auth` and
    `/v1/local-discovery`
@@ -279,6 +299,9 @@ instance) takes no lock.
     ├── network.json             # id of the any-sync network this account's data
     │                            #   belongs to — written on first boot; another
     │                            #   network refuses the boot (§ Startup)
+    ├── login.json               # only for an account logged in on this device:
+    │                            #   pending until its first sync, then complete
+    │                            #   (§ Startup); absent = complete
     ├── server.lock              # per-account single-instance lock (OS file lock)
     ├── server.pid               # holder's pid, for error messages only
     ├── server.addr              # holder's bound address — CLI convenience only
@@ -357,7 +380,11 @@ panic logs at `error` with its stack.
 ```
 
 Does not require SDK state — on an unauthorized server `account` is
-`""` and everything else is live. `any status` prints it.
+`""` and everything else is live. `any status` prints it. While a login
+waits for the account's first sync (§ Startup), `account` is `""` too
+and a `login` object names the account and the tech space's sync state:
+`{"accountId", "sync", "networkPeers", "localPeers", "globalPeers"}`.
+A script that restores an account waits for `account` to be set.
 
 `networkId` is the any-sync network this server joins: the `networkId`
 of the nodeconf resolved at startup (§ Startup), present authorized or

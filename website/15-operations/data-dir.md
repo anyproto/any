@@ -20,6 +20,7 @@ order: 30
     ├── wallet.key               # standalone: mnemonic + device key (mode 0600)
     ├── device.key               # managed: cached device key (mode 0600); the account key is never written
     ├── network.json             # the any-sync network this account's data belongs to
+    ├── login.json               # only for an account logged in on this device: pending until its first sync, then complete
     ├── server.lock              # per-account single-instance lock (OS file lock)
     ├── server.pid               # holder's pid, for error messages only
     ├── server.addr              # holder's bound address, for the CLI only
@@ -37,6 +38,7 @@ A `wallet.key` directly at the root is the legacy flat layout: it acts as the de
 | `wallet.key` | server | standalone: the mnemonic (the account) and this device's key | **no — the only copy of the device key** |
 | `device.key` | server | managed: this device's key, reused on every login of the account | no — removing it registers this install as a new device |
 | `network.json` | server | the id of the any-sync network the account's data belongs to, pinned on the first boot | no — without it the next boot adopts whatever network it starts on |
+| `login.json` | server | whether a login on this device has seen the account's first sync: `pending` keeps the server closed, `complete` or no file opens it at once ([Accounts](../auth/accounts.html)) | no — removing a `pending` one opens an account that may have synced nothing |
 | `server.lock` | server | the single-instance lock itself — an OS file lock, empty, released by the kernel when the process exits | yes |
 | `server.pid` | server | the lock holder's pid, written after acquiring; names it in `409 auth.account_in_use` and nothing more | yes |
 | `server.addr` | server | the lock holder's bound address; the CLI reads it when `--addr` is not given | yes |

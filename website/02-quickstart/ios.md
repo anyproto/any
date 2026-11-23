@@ -104,7 +104,7 @@ Use Application Support (excluded from iCloud backup if you prefer) as the data 
 
 ## Create or restore the account
 
-A fresh data dir boots *unauthorized* — and a managed start boots unauthorized on every launch. Onboard over HTTP — `POST /v1/auth` with `{}` generates an account and returns the mnemonic **once**; with `{"mnemonic": "…"}` it restores one (same account id, fresh device key):
+A fresh data dir boots *unauthorized* — and a managed start boots unauthorized on every launch. Onboard over HTTP — `POST /v1/auth` with `{}` creates an account and returns the mnemonic **once**; with `{"mnemonic": "…"}` it logs in to an existing one (same account id, fresh device key):
 
 ```swift
 var req = URLRequest(url: AnyBackend.shared.baseURL.appendingPathComponent("auth"))
@@ -116,6 +116,8 @@ let (data, _) = try await URLSession.shared.data(for: req)
 ```
 
 Until an account is booted, every route except `/v1/health`, `/v1/shutdown`, `/v1/openapi.json`, `/v1/auth` returns `401 auth.required` ([Accounts](../auth/accounts.html)).
+
+A created account is open when the call returns, with no network. A login on a device that holds nothing of the account is not: the reply carries `login`, and the routes answer `503 auth.login_pending` until the account has synced once from the network or from another device of the account. Show a "waiting for sync" screen and poll `GET /v1/auth` until `authorized` is true; the wait survives an app restart. Later launches of an account that has synced open at once, offline too.
 
 ## Then it is just HTTP
 

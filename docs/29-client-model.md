@@ -61,9 +61,10 @@ never reaches storage. Keying a value by `xKey` is `property.not_found`.
 
 ## Startup: what a client does when it opens a space
 
-1. `GET /v1/spaces/:spaceId/bundles` — the installed registry. It answers
-   after the convergence wait and carries `synced`; `synced: true` plus no
-   row means definitively not installed.
+1. `GET /v1/spaces/:spaceId/bundles` — the installed registry. On a
+   space this device downloaded it answers `409 bundle.not_ready` until
+   the registry has arrived; retry. A reply is definitive: no row means
+   not installed.
 2. `GET /v1/spaces/:spaceId/types?includeHidden=true` and
    `GET /v1/spaces/:spaceId/collections?includeHidden=true` — every
    definition, with `xKey`, the `hidden` / `builtIn` flags, and `layout`

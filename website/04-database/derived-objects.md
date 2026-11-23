@@ -38,7 +38,7 @@ Deriving an id never creates anything. The pattern across the surface is a cheap
 curl http://127.0.0.1:2046/v1/spaces/derived
 # → {"spaces": [{"name": "bao", "spaceId": "bafy…", "created": false}]}
 
-# materialize: creates on first call, returns the same space on every later one
+# create: creates the space when the account has none, returns the same space on every later call
 curl -X POST http://127.0.0.1:2046/v1/spaces/derived/bao
 # → 201 SpaceInfo
 
@@ -72,4 +72,4 @@ Deleting a **1-1 space** is local-only and re-derivable, and a joiner of someone
 
 ## Precedence when both exist
 
-If a created root and a derived root are both claimed for the same bundle id, the derived one wins on every replica — the verdict reads only the add-only claim set, so every device reaches the same answer — and the created root becomes an ordinary, resolvable loser. Nothing is destroyed; the demoted root keeps its content and stays deletable. Because a derived install proceeds after its convergence wait expires, a claim made blind can demote a created install this device had not yet seen; the wait is what narrows that window.
+If a created root and a derived root are both claimed for the same bundle id, the derived one wins on every replica — the verdict reads only the add-only claim set, so every device reaches the same answer — and the created root becomes an ordinary, resolvable loser. Nothing is destroyed; the demoted root keeps its content and stays deletable. In a one-to-one space a derived install proceeds after its convergence wait expires, so a claim made blind can demote a created install this device had not yet seen; the wait is what narrows that window. In any other space a derived install is refused, like a created one, until the space's registry has reached this device.
