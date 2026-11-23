@@ -9,7 +9,7 @@ The API is small on purpose. Every rule below is something the server refuses to
 
 ## 1. One surface: HTTP/JSON on loopback
 
-Every caller — the CLI, the web UI, a language binding, an agent — goes through `http://127.0.0.1:2046/v1/…`. Nothing opens the database or talks to sync peers directly. The CLI is a thin client: `any space get X` *is* `GET /v1/spaces/X`, exit code included.
+Every caller of the server's data — the CLI, the web UI, a language binding, an agent — goes through `http://127.0.0.1:2046/v1/…`. Nothing opens the database or talks to sync peers directly. The CLI is a thin client: `any space get X` *is* `GET /v1/spaces/X`, exit code included; the few commands that work without HTTP, such as `any init`, are in the [CLI reference](../reference/cli.html).
 
 ```
 0  success      1  user error / 4xx      2  server error / 5xx      3  can't reach server

@@ -5,8 +5,12 @@
 - **Default mode is client.** `any space get <id>` sends a GET to the
   running server.
 - **Running the server is an explicit subcommand.** `any run`.
-- **Commands map 1:1 onto endpoints.** Not every endpoint has a
-  command; the ones below without one are HTTP-only (`03-api.md`).
+- **Commands that work on the server's data map 1:1 onto endpoints.**
+  Not every endpoint has a command; the ones below without one are
+  HTTP-only (`03-api.md`). A few commands work without HTTP: `any init`
+  and `any debug neural-engine` need no server, and `any stop` signals
+  the server that holds the account's instance lock, failing when none
+  does.
 - **Output is JSON.** Pretty-printed (easier for both humans and piping
   through `jq`); streams print one JSON object per frame. No table
   rendering.

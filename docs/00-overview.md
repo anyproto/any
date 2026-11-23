@@ -37,8 +37,9 @@ façade; breaking changes to the API are expected.
 
 The CLI never opens the SDK, never touches any-store, never talks to
 any-sync peers. Every caller of the server's data — human, script,
-language binding — goes through HTTP; a few commands, such as
-`any init` and `any stop`, run without a server (`01-cli.md`).
+language binding — goes through HTTP. A few commands work without HTTP
+(`01-cli.md`): `any init` and `any debug neural-engine` need no server,
+and `any stop` signals the server that holds the account's lock.
 
 The same server also runs in-process: `internal/embedded` owns the
 lifecycle for the mobile bindings (`mobile/ios`, `mobile/android`).
@@ -82,7 +83,7 @@ token expresses ownership, not authentication (`02-server.md` § Modes).
   breaking changes during the prototype phase are expected and are
   absorbed by bumping the version path.
 - Hiding SDK concepts. Endpoints map 1:1 onto SDK methods; CLI commands
-  map 1:1 onto endpoints.
+  that work on the server's data map 1:1 onto endpoints.
 
 ## Package layout
 

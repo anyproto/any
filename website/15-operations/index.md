@@ -5,7 +5,7 @@ order: 0
 ---
 # Operations
 
-`any` is one binary: `any run` is the server, and every `any …` command that works on its data is an HTTP client for it; a few, such as `any init` and `any stop`, run without it. This section covers what an operator needs — how the process starts and stops, where its state lives, how it is configured, which network it joins, what the trust boundary is, and how to look inside when something is off.
+`any` is one binary: `any run` is the server, and every `any …` command that works on its data is an HTTP client for it; a few work without HTTP, such as `any init`, and `any stop`, which signals the server through its instance lock. This section covers what an operator needs — how the process starts and stops, where its state lives, how it is configured, which network it joins, what the trust boundary is, and how to look inside when something is off.
 
 ## The process model
 

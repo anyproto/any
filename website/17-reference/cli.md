@@ -1,11 +1,11 @@
 ---
 title: CLI
-description: Every any command group with its flags — a thin HTTP client over the local server, one command per endpoint, JSON on stdout.
+description: Every any command group with its flags — a command that works on the server's data is one HTTP call to it, a few work without HTTP, JSON on stdout.
 order: 20
 ---
 # CLI
 
-`any` is one binary in two roles: `any run` starts the server, and every subcommand that needs it is an HTTP call to it; a few run locally without one, such as `any init`, `any stop` and `any debug neural-engine`. A command that works on the server's data never opens the SDK or the store itself, so anything a server-facing command does you can do from `curl` — and vice versa.
+`any` is one binary in two roles: `any run` starts the server, and every subcommand that works on its data is an HTTP call to it. A few work without HTTP: `any init` and `any debug neural-engine` need no server, and `any stop` signals the server that holds the account's instance lock, failing when none does. A command that works on the server's data never opens the SDK or the store itself, so anything it does you can do from `curl`; not every endpoint has a command.
 
 ## Global flags and exit codes
 

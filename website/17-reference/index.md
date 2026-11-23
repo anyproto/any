@@ -23,7 +23,7 @@ anyrt serve  127.0.0.1:7010           (anyrt-cli, anybao-toml)
    └─ triggers                                                 (trigger-schema)
 ```
 
-Two binaries, two config files, one API. The `any` CLI is a thin client over the HTTP API — every subcommand is one endpoint — and `anyrt` is a client of the same API from inside a sandbox.
+Two binaries, two config files, one API. The `any` CLI is a thin client over the HTTP API — every command that works on the server's data is one endpoint — and `anyrt` is a client of the same API from inside a sandbox.
 
 ## Conventions used throughout
 
