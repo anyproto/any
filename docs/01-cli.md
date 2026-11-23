@@ -40,8 +40,9 @@ any version                      # print the binary version, and the server's wh
 
 `any init` is the explicit first-run flow. Bare `init` generates a
 fresh account under `<root>/<accountId>/`, prints the BIP-39 mnemonic
-to stderr once and `{accountId, created}` to stdout; when any account
-already exists it is a no-op that lists them. `--mnemonic` /
+to stderr once and `{accountId, created}` to stdout; a mnemonic that
+cannot be written fails it (exit 1) with the wallet already created.
+When any account already exists it is a no-op that lists them. `--mnemonic` /
 `--mnemonic-stdin` authorize an EXISTING account: the same phrase
 always derives the same account id while the device key is freshly
 generated — the supported way to add a second device (never copy

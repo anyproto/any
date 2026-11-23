@@ -123,7 +123,9 @@ func initWallet(cmd *cobra.Command, walletPath, passkey, mnemonic string, index 
 		return err
 	}
 	if firstRun && printPhrase {
-		server.PrintMnemonic(provider.Mnemonic())
+		if err := server.PrintMnemonic(cmd.ErrOrStderr(), provider.Mnemonic()); err != nil {
+			return fmt.Errorf("the wallet was created, but its recovery phrase could not be written: %w", err)
+		}
 	}
 	id, err := server.AccountID(cmd.Context(), provider)
 	if err != nil {

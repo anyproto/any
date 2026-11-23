@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -8,8 +9,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/anyproto/any-sync-sdk/auth"
 
 	"github.com/anyproto/any/internal/client"
 )
@@ -81,5 +85,35 @@ func TestStatusAndInit_FailedWrite(t *testing.T) {
 	ic.SetOut(w)
 	if err := printInitResult(ic, "Aone", true); err == nil || exitCode(err) != 1 {
 		t.Fatalf("init's result to a closed pipe = %v, want an error that exits 1", err)
+	}
+}
+
+// failingWriter fails every write, as a full disk does.
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("no space left on device") }
+
+// A fresh `any init` whose recovery phrase cannot be written exits 1 and
+// says the wallet it created is there: the phrase is shown only once.
+func TestInit_RecoveryPhraseFailedWrite(t *testing.T) {
+	phrase, err := auth.GenerateMnemonic()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ic := newInitCmd()
+	ic.SetContext(context.Background())
+	ic.SetErr(failingWriter{})
+	var out bytes.Buffer
+	ic.SetOut(&out)
+	wallet := filepath.Join(t.TempDir(), "wallet.key")
+	err = initWallet(ic, wallet, "", phrase, auth.DefaultAccountIndex, true)
+	if err == nil || exitCode(err) != 1 || !strings.Contains(err.Error(), "wallet was created") {
+		t.Fatalf("init with its phrase unwritten = %v, want an error that exits 1 and names the created wallet", err)
+	}
+	if _, err := os.Stat(wallet); err != nil {
+		t.Fatalf("the wallet: %v", err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("a result printed after the phrase was lost: %s", out.String())
 	}
 }
