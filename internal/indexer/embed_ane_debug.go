@@ -109,20 +109,17 @@ func (p neuralEngineProbe) report(ctx context.Context, pkg *coreMLPackage, model
 	if !pkg.complete(dir) {
 		return nil, fmt.Errorf("the Core ML package is not installed: %s is missing or incomplete (the server downloads it for the local embedder)", dir)
 	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
+	if !debugStep(ctx, progress, "checking %s against its pin", pkg.id()) {
+		return nil, ctx.Err()
 	}
-	progress("checking %s against its pin", pkg.id())
 	if err := pkg.verify(dir); err != nil {
 		return nil, fmt.Errorf("the Core ML package is not the pinned one: %w", err)
 	}
-	// An interrupt under the check compiles nothing.
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
 	// Core ML compiles into a temporary directory of its own: the model
 	// the embedder compiled beside the package is not read or written.
-	progress("compiling into a temporary directory")
+	if !debugStep(ctx, progress, "compiling into a temporary directory") {
+		return nil, ctx.Err()
+	}
 	start := time.Now()
 	compiled, err := p.compile(dir)
 	if err != nil {
@@ -149,11 +146,10 @@ func (p neuralEngineProbe) report(ctx context.Context, pkg *coreMLPackage, model
 // after a compile, and its plan is read after that load.
 func (p neuralEngineProbe) functions(ctx context.Context, compiled string, lengths []int, dim int, progress func(string, ...any)) (out []NeuralEngineFunction) {
 	for _, length := range lengths {
-		if ctx.Err() != nil {
+		f := NeuralEngineFunction{Function: "s" + strconv.Itoa(length)}
+		if !debugStep(ctx, progress, "%s: loading and predicting", f.Function) {
 			return out
 		}
-		f := NeuralEngineFunction{Function: "s" + strconv.Itoa(length)}
-		progress("%s: loading and predicting", f.Function)
 		t, fn, err := p.measure(compiled, f.Function, length, dim, debugSpeedRounds)
 		// A step that failed leaves those before it measured.
 		f.LoadMs, f.FirstPredictMs = millis(t.Load), millis(t.FirstPredict)
@@ -166,10 +162,9 @@ func (p neuralEngineProbe) functions(ctx context.Context, compiled string, lengt
 				f.TextsPerSecond = float64(int(10*float64(time.Second)/float64(t.PerText))) / 10
 			}
 		}
-		if ctx.Err() != nil {
+		if !debugStep(ctx, progress, "%s: reading its compute plan", f.Function) {
 			return out
 		}
-		progress("%s: reading its compute plan", f.Function)
 		start := time.Now()
 		plan, err := p.plan(compiled, f.Function)
 		f.PlanMs = millis(time.Since(start))
@@ -183,6 +178,17 @@ func (p neuralEngineProbe) functions(ctx context.Context, compiled string, lengt
 		out = append(out, f)
 	}
 	return out
+}
+
+// debugStep tells progress about a step and reports whether to take
+// it: not after an interrupt, one that came while the line was written
+// included, which a full stderr can block.
+func debugStep(ctx context.Context, progress func(string, ...any), format string, args ...any) bool {
+	if ctx.Err() != nil {
+		return false
+	}
+	progress(format, args...)
+	return ctx.Err() == nil
 }
 
 // pickFunctions resolves the functions asked for ("s128"), in the

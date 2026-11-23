@@ -200,22 +200,41 @@ func TestNeuralEngineReport_Interrupted(t *testing.T) {
 	}
 }
 
-// An interrupt while the package is checked against its pin compiles
-// nothing.
-func TestNeuralEngineReport_InterruptedBeforeCompile(t *testing.T) {
-	pkg, models, probe, _ := debugPackage(t)
-	probe.compile = func(string) (string, error) {
-		t.Fatal("compiled after the interrupt")
-		return "", nil
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	progress := func(format string, _ ...any) {
-		if strings.HasPrefix(format, "checking ") {
-			cancel()
+// An interrupt that comes while a step's progress line is written, which
+// a full stderr can hold up, starts none of the Core ML calls after it.
+func TestNeuralEngineReport_InterruptedBeforeACall(t *testing.T) {
+	for _, line := range []string{"checking ", "compiling ", "%s: loading", "%s: reading"} {
+		pkg, models, probe, compiled := debugPackage(t)
+		var calls []string
+		compile, measure, plan := probe.compile, probe.measure, probe.plan
+		probe.compile = func(pkg string) (string, error) {
+			calls = append(calls, "compile")
+			return compile(pkg)
 		}
-	}
-	if r, err := probe.report(ctx, pkg, models, 4, nil, progress); !errors.Is(err, context.Canceled) || r != nil {
-		t.Fatalf("interrupted under the check: %+v, %v", r, err)
+		probe.measure = func(compiled, function string, length, dim, rounds int) (coreml.Timing, *coreml.Function, error) {
+			calls = append(calls, "load")
+			return measure(compiled, function, length, dim, rounds)
+		}
+		probe.plan = func(compiled, function string) (coreml.Placement, error) {
+			calls = append(calls, "plan")
+			return plan(compiled, function)
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		progress := func(format string, _ ...any) {
+			if strings.HasPrefix(format, line) {
+				cancel()
+			}
+		}
+		// The functions' steps run on a goroutine of report's: they are
+		// taken here, on the test's.
+		if strings.HasPrefix(line, "%s") {
+			probe.functions(ctx, compiled, []int{128}, 4, progress)
+		} else if r, err := probe.report(ctx, pkg, models, 4, nil, progress); !errors.Is(err, context.Canceled) || r != nil {
+			t.Fatalf("interrupted at %q: %+v, %v", line, r, err)
+		}
+		if want := map[string][]string{"%s: reading": {"load"}}[line]; !reflect.DeepEqual(calls, want) {
+			t.Errorf("interrupted at %q: calls %v, want %v", line, calls, want)
+		}
+		cancel()
 	}
 }
