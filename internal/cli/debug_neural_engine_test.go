@@ -124,7 +124,7 @@ func TestDebugNeuralEngine_ConfigErrorToAClosedPipe(t *testing.T) {
 	_ = r.Close()
 	defer w.Close()
 	dir := t.TempDir()
-	cmd := exec.Command(os.Args[0], "-test.run=^TestDebugNeuralEngine_ConfigErrorToAClosedPipe$")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestDebugNeuralEngine_ConfigErrorToAClosedPipe$", "-test.timeout=1m")
 	cmd.Env = append(os.Environ(), "ANY_TEST_MISSING_CONFIG="+filepath.Join(dir, "missing.yaml"), "ANY_DATA_DIR="+dir)
 	cmd.Stdout, cmd.Stderr = w, w
 	_ = cmd.Run()
