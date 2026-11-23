@@ -41,13 +41,14 @@ func newDebugNeuralEngineCmd() *cobra.Command {
 			// fails a write instead of killing it: the directory's removal
 			// and the error line, a config's included, still come.
 			signal.Notify(make(chan os.Signal, 1), syscall.SIGPIPE)
-			cfg, err := config.LoadClient(configFlags())
-			if err != nil {
-				return err
-			}
 			ctx, cancel := context.WithCancel(cmd.Context())
 			defer cancel()
 			cleanedUp := exitOnSecondInterrupt(cancel)
+			cfg, err := config.LoadClient(configFlags())
+			if err != nil {
+				cleanedUp() // nothing to remove yet
+				return err
+			}
 			progress := func(format string, args ...any) {
 				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), format+"\n", args...) // a closed stderr does not end the run
 			}

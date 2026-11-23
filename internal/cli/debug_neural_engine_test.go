@@ -3,9 +3,12 @@ package cli
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -122,5 +125,79 @@ func TestDebugNeuralEngine_ConfigErrorToAClosedPipe(t *testing.T) {
 	_ = cmd.Run()
 	if code := cmd.ProcessState.ExitCode(); code != 1 {
 		t.Fatalf("%v, want exit 1", cmd.ProcessState)
+	}
+}
+
+// A config that fails to load ends at an interrupt while its error blocks
+// on a full pipe, also when the shell started it with SIGINT ignored.
+func TestDebugNeuralEngine_ConfigErrorToAFullPipe(t *testing.T) {
+	if missing := os.Getenv("ANY_TEST_MISSING_CONFIG_FULL"); missing != "" {
+		signal.Ignore(syscall.SIGINT)
+		_ = os.NewFile(3, "ready").Close() // the parent interrupts from here
+		os.Args = []string{"any", "debug", "neural-engine", "--config", missing}
+		os.Exit(Execute())
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("no signal to send")
+	}
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	defer w.Close()
+	// Filled and never read: the child's error line blocks.
+	if err := w.SetWriteDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write(make([]byte, 1<<20)); !errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatalf("filling the pipe: %v", err)
+	}
+	dir := t.TempDir()
+	cmd := exec.Command(os.Args[0], "-test.run=^TestDebugNeuralEngine_ConfigErrorToAFullPipe$", "-test.timeout=1m")
+	cmd.Env = append(os.Environ(), "ANY_TEST_MISSING_CONFIG_FULL="+filepath.Join(dir, "missing.yaml"), "ANY_DATA_DIR="+dir)
+	cmd.Stdout, cmd.Stderr = w, w
+	ready, readyW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ready.Close()
+	cmd.ExtraFiles = []*os.File{readyW}
+	err = cmd.Start()
+	_ = readyW.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	exited := make(chan struct{})
+	go func() {
+		defer close(exited)
+		_ = cmd.Wait()
+	}()
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		<-exited
+	})
+	if err := ready.SetReadDeadline(time.Now().Add(30 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ready.Read(make([]byte, 1)); err != io.EOF {
+		t.Fatalf("the child did not ignore SIGINT: %v", err)
+	}
+	// Until it exits: one sent before the receiver is in place is ignored.
+	tick := time.NewTicker(50 * time.Millisecond)
+	defer tick.Stop()
+	deadline := time.After(30 * time.Second)
+	for running := true; running; {
+		select {
+		case <-exited:
+			running = false
+		case <-tick.C:
+			_ = cmd.Process.Signal(syscall.SIGINT)
+		case <-deadline:
+			t.Fatal("the child ignored SIGINT while its error line blocked")
+		}
+	}
+	if code := cmd.ProcessState.ExitCode(); code != 128+int(syscall.SIGINT) {
+		t.Fatalf("%v, want exit %d", cmd.ProcessState, 128+int(syscall.SIGINT))
 	}
 }

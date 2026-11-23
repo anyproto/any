@@ -92,11 +92,9 @@ then every 'any <cmd>' that works on its data makes HTTP calls to it.
 signals the server that holds the account's lock, without HTTP.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		// Without --addr a client command reaches the server serving
-		// the data dir's account, wherever it bound (an ephemeral port
-		// included): its recorded server.addr wins over the fixed
-		// default. Server-side and lock-based commands are exempt —
-		// `run` binds the flag, `init` and `stop` never connect.
+		// Without --addr a client command reaches the server serving the data
+		// dir's account at its recorded server.addr, an ephemeral port included.
+		// `run` binds the flag; `init`, `stop` and `debug neural-engine` never connect.
 		PersistentPreRun: func(cmd *cobra.Command, _ []string) {
 			if flags.Addr != "" {
 				return
@@ -104,6 +102,10 @@ signals the server that holds the account's lock, without HTTP.`,
 			switch topLevelName(cmd) {
 			case "run", "init", "stop":
 				return
+			case "debug":
+				if cmd.Name() == "neural-engine" {
+					return
+				}
 			}
 			if addr := discoverAddr(); addr != "" {
 				flags.Addr = addr
