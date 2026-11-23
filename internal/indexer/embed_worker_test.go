@@ -1190,7 +1190,13 @@ func TestWorkerEmbedder_RequestRacingIdleRetirement(t *testing.T) {
 				runtime.Gosched()
 			}
 		}
-		if _, err := w.EmbedQuery(context.Background(), "q"); err != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), childWaitBound)
+		_, err := w.EmbedQuery(ctx, "q")
+		if ctx.Err() != nil {
+			t.Log(goroutineStacks())
+		}
+		cancel()
+		if err != nil {
 			t.Fatalf("round %d: request racing the retirement failed: %v", i, err)
 		}
 		recvWithin(t, "end of the idle retirement", done)

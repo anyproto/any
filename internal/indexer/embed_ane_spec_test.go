@@ -617,21 +617,24 @@ func TestWorkerEmbedder_PrepareBulkWaitsForTheFirstFunction(t *testing.T) {
 	if w.bulkWaited.Load() {
 		t.Fatal("the wait ended on the deadline")
 	}
-	// Settled: nothing to wait for, and nothing to take the slot for.
-	if err := w.slot.acquire(context.Background(), false); err != nil {
-		t.Fatal(err)
-	}
-	asked := make(chan struct{})
-	go func() {
-		defer close(asked)
-		w.PrepareBulk(context.Background(), nil)
+	// Settled: nothing to wait for, and nothing to take the slot for. The
+	// slot goes back on a failure too, or the worker's Close waits for it.
+	func() {
+		if err := w.slot.acquire(context.Background(), false); err != nil {
+			t.Fatal(err)
+		}
+		defer w.slot.release(false)
+		asked := make(chan struct{})
+		go func() {
+			defer close(asked)
+			w.PrepareBulk(context.Background(), nil)
+		}()
+		select {
+		case <-asked:
+		case <-time.After(5 * time.Second):
+			t.Fatal("a settled child was asked through the slot")
+		}
 	}()
-	select {
-	case <-asked:
-	case <-time.After(5 * time.Second):
-		t.Fatal("a settled child was asked through the slot")
-	}
-	w.slot.release(false)
 	if _, err := w.EmbedDocs(context.Background(), []string{"a"}); err != nil {
 		t.Fatal(err)
 	}

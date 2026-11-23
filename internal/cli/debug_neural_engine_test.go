@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -29,7 +30,8 @@ func TestExitOnSecondInterrupt(t *testing.T) {
 		t.Skip("no signal to send")
 	}
 	for _, cleaned := range []bool{false, true} {
-		cmd := exec.Command(os.Args[0], "-test.run=^TestExitOnSecondInterrupt$")
+		// A timeout of its own ends the child should this process die first.
+		cmd := exec.Command(os.Args[0], "-test.run=^TestExitOnSecondInterrupt$", "-test.timeout=2m")
 		cmd.Env = append(os.Environ(), "ANY_TEST_INTERRUPT_CLEANED="+strconv.FormatBool(cleaned))
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
@@ -38,14 +40,24 @@ func TestExitOnSecondInterrupt(t *testing.T) {
 		if err := cmd.Start(); err != nil {
 			t.Fatal(err)
 		}
-		lines := make(chan string)
+		lines, quit, exited := make(chan string), make(chan struct{}), make(chan struct{})
 		go func() {
-			defer close(lines)
+			defer close(exited)
 			for s := bufio.NewScanner(stdout); s.Scan(); {
-				lines <- s.Text()
+				select {
+				case lines <- s.Text():
+				case <-quit: // nobody listens: read on to the end, then Wait
+				}
 			}
+			_ = cmd.Wait()
 		}()
-		exited := make(chan error, 1)
+		var stopListening sync.Once
+		// Whatever ends the test, the child is killed if need be and waited once.
+		t.Cleanup(func() {
+			stopListening.Do(func() { close(quit) })
+			_ = cmd.Process.Kill()
+			<-exited
+		})
 		next := func(want string) {
 			t.Helper()
 			select {
@@ -54,7 +66,6 @@ func TestExitOnSecondInterrupt(t *testing.T) {
 					t.Fatalf("cleaned %v: the child said %q, want %q", cleaned, got, want)
 				}
 			case <-time.After(time.Minute):
-				_ = cmd.Process.Kill()
 				t.Fatalf("cleaned %v: the child did not say %q", cleaned, want)
 			}
 		}
@@ -68,16 +79,10 @@ func TestExitOnSecondInterrupt(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		go func() {
-			for range lines {
-			}
-			exited <- cmd.Wait()
-		}()
+		stopListening.Do(func() { close(quit) })
 		select {
 		case <-exited:
 		case <-time.After(time.Minute):
-			_ = cmd.Process.Kill()
-			<-exited
 			t.Fatalf("cleaned %v: the child did not exit", cleaned)
 		}
 		if code := cmd.ProcessState.ExitCode(); code != 128+int(syscall.SIGTERM) {
