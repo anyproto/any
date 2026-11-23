@@ -79,29 +79,10 @@ func RunEmbedWorker(ctx context.Context, cfg EmbedWorkerConfig, in io.Reader, ou
 	}
 	defer l.Close()
 
-	// Dim loads the model (ModelPath is set, so this is never the
-	// default-model shortcut) — the handshake means "ready to decode".
-	dim, err := l.Dim(ctx)
-	if err != nil {
-		return err
-	}
-
+	// Reading runs on its own goroutine, from before the model loads, so
+	// the end of the stream (the parent closing stdin, or dying) is noticed
+	// in a load or a decode, neither of which can be interrupted.
 	r := bufio.NewReaderSize(in, 64<<10)
-	w := bufio.NewWriter(out)
-	hw := l.Hardware()
-	if err := writeFrame(w, workerResp{Op: workerOpReady, Dim: dim, Hardware: &hw}, nil); err != nil {
-		return err
-	}
-	// After the handshake, so a Core ML crash is a death of a started
-	// child, which the server demotes. The functions load in the
-	// background while llama.cpp serves.
-	l.startNeuralEngine(cfg.CoreMLDir)
-
-	// Reading runs on its own goroutine so the end of the stream — the
-	// parent closing stdin, or dying — is noticed even mid-decode. A
-	// decode cannot be interrupted, so a wedged child that waited for
-	// the next request to spot the EOF would outlive its parent holding
-	// the model; it exits instead.
 	var decoding atomic.Bool
 	reqs := make(chan workerReq)
 	readErr := make(chan error, 1)
@@ -117,13 +98,30 @@ func RunEmbedWorker(ctx context.Context, cfg EmbedWorkerConfig, in io.Reader, ou
 					os.Exit(0)
 				}
 				// The parent may be gone, and with it the kill that ends a
-				// cleanup wedged in a native close.
+				// model load or a cleanup wedged in native code.
 				go exitUnless(closed, workerOrphanGrace)
 				return
 			}
 			reqs <- req
 		}
 	}()
+
+	// Dim loads the model (ModelPath is set, so this is never the
+	// default-model shortcut) — the handshake means "ready to decode".
+	dim, err := l.Dim(ctx)
+	if err != nil {
+		return err
+	}
+
+	w := bufio.NewWriter(out)
+	hw := l.Hardware()
+	if err := writeFrame(w, workerResp{Op: workerOpReady, Dim: dim, Hardware: &hw}, nil); err != nil {
+		return err
+	}
+	// After the handshake, so a Core ML crash is a death of a started
+	// child, which the server demotes. The functions load in the
+	// background while llama.cpp serves.
+	l.startNeuralEngine(cfg.CoreMLDir)
 
 	for req := range reqs {
 		switch req.Op {
