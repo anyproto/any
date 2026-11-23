@@ -1106,7 +1106,12 @@ package. Past that the child reads no compute plan: a function that
 loads and predicts is used, wherever Core ML runs it, and nothing about
 it is kept on disk. A function that fails to load (`s<N> not used: …`)
 is not used for the life of that child, and the next child loads it
-again. The digest in the package's directory name is of its pinned
+again. Where Core ML plans each function on a given machine is read on
+demand, outside the server: `any debug neural-engine` (`01-cli.md`
+§ Debug) compiles the package apart and reports each function's plan
+with a verdict (more than 100 operations on the Neural Engine and no
+convolution, matmul, linear or softmax operation on the CPU), its load
+time and its speed. The digest in the package's directory name is of its pinned
 checksums, so another pin is another directory with a compiled model of
 its own.
 

@@ -374,6 +374,7 @@ any push subscriptions
 any debug space  <spaceId>                          # per-peer headsync counters
 any debug object <spaceId> <objectId>               # tree + sync snapshot (walks the tree)
 any debug p2p                                       # direct-layer snapshot (LAN + global)
+any debug neural-engine [--function s128]           # no server: Core ML plan, load and predict times per function (Apple Silicon)
 any local-discovery [on|off]                        # mDNS announce+browse switch (works before auth)
 ```
 

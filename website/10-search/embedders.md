@@ -67,7 +67,7 @@ index:
     neuralEngine: "off"   # llama.cpp alone
 ```
 
-A function that fails to load, or whose predictions keep failing, is dropped for as long as that embedder child runs, and the next larger function, or llama.cpp when none is left, takes its texts, whatever `contextSize` is set to; the next child loads it again. A bulk index of mixed lengths keeps all five functions loaded at once, about 2.0 GB of wired memory next to llama.cpp (1.4 GB when no text passes 1,024 tokens).
+`any debug neural-engine` reports, without a server, where Core ML plans each function on the Mac it runs on and how fast the function loads and predicts. A function that fails to load, or whose predictions keep failing, is dropped for as long as that embedder child runs, and the next larger function, or llama.cpp when none is left, takes its texts, whatever `contextSize` is set to; the next child loads it again. A bulk index of mixed lengths keeps all five functions loaded at once, about 2.0 GB of wired memory next to llama.cpp (1.4 GB when no text passes 1,024 tokens).
 
 Platform notes: only builds with `-tags llamacpp` carry the local embedder; without it `local` fails at boot ([Builds and CI](../operations/builds-and-ci.html)). Linux needs a loadable system `libffi.so.8` (on NixOS use the repo's `nix develop` shell); macOS bundles it. Mobile builds have full-text search and force vector search off; they never construct an embedder, even when the configuration names one.
 

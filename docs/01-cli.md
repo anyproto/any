@@ -859,7 +859,59 @@ override).
 any debug space  <spaceId>                  # per-peer headsync counters (in-memory)
 any debug object <spaceId> <objectId>       # tree + sync snapshot (one-shot; walks the tree)
 any debug p2p                               # GET /v1/debug/p2p — LAN + global layers, known peers
+any debug neural-engine [--function s128]   # no server: Core ML plan, load and predict times per function
 ```
+
+`any debug neural-engine` runs in the CLI process, without a server, on
+an Apple Silicon Mac. It takes the pinned Core ML package of
+`embeddinggemma-2` from `<root>/models` (`--data-dir` / `--config` pick
+the root, as for `any run`), checks it against its pin, compiles it
+into a temporary directory that it removes at the end, and for each
+function (or the ones named with `--function`, repeatable) reads Core
+ML's compute plan, loads it, predicts once and times 50 predictions of
+a text three quarters of the function's length. Progress goes to stderr
+and the result to stdout:
+
+```
+{
+  "model": "embeddinggemma-2",
+  "package": "embeddinggemma-2-<digest>",
+  "host": "<chip>, macOS build <build>",
+  "compileMs": …,
+  "functions": [
+    {
+      "function": "s128",
+      "planMs": …,
+      "neuralEngine": …, "gpu": …, "cpu": …, "unknown": …,
+      "cpuCore": ["<operator>", …],
+      "unknownCore": ["<operator>", …],
+      "placement": "on",
+      "loadMs": …, "firstPredictMs": …,
+      "speedTokens": …, "msPerText": …, "textsPerSecond": …
+    }
+  ],
+  "embedderPids": [ … ],
+  "note": "…"
+}
+```
+
+The four counts are the operations Core ML plans on each device and the
+ones it names no device for; `cpuCore` and `unknownCore`, absent when
+empty, list the convolution, matmul, linear and softmax operators among
+the CPU's and the unknown ones. `placement` is the verdict on the plan: `on` (more
+than 100 operations on the Neural Engine and no core operator on the
+CPU), `off`, or `unknown` when the answer depends on operations the
+plan names no device for. A plan that fails leaves `planError` and no
+`placement`; a load or prediction that fails leaves `error`; the other
+functions are still measured. The compiled model the embedder keeps
+beside the package is neither read nor written, so every plan and load
+here is a first one and takes as long as on a fresh machine. An
+embedder child running on the machine shares the Neural Engine: its
+pid is listed in `embedderPids` with a `note`, and the times can be
+higher. Exit `1` with `unsupported: …` off an Apple Silicon Mac, in a
+virtual machine, without a Neural Engine and in a build without the
+local embedder; exit `1` too when the package is not installed or is
+not the pinned one, before anything is compiled.
 
 ### Local discovery
 

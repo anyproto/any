@@ -43,16 +43,6 @@ func testLengths(t *testing.T) []int {
 	return out
 }
 
-// filler is a token sequence of n ids: BOS, one repeated word, EOS.
-func filler(n int) []int32 {
-	out := make([]int32, n)
-	for i := range out {
-		out[i] = 9259
-	}
-	out[0], out[n-1] = 2, 1
-	return out
-}
-
 func vectorNorm(v []float32) float64 {
 	var sum float64
 	for _, x := range v {
@@ -118,27 +108,21 @@ func TestPackage(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
-		t.Logf("%s plan in %s: %d neural engine, %d gpu, %d cpu operations, cpu core %v",
-			name, time.Since(start).Round(time.Millisecond), plan.NeuralEngine, plan.GPU, plan.CPU, plan.CPUCore)
-		if !plan.OnNeuralEngine() {
-			t.Errorf("%s: core planned off the neural engine", name)
+		t.Logf("%s plan in %s: %d neural engine, %d gpu, %d cpu operations, cpu core %v: %s",
+			name, time.Since(start).Round(time.Millisecond), plan.NeuralEngine, plan.GPU, plan.CPU, plan.CPUCore, plan.Verdict())
+		if plan.Verdict() != VerdictOn {
+			t.Errorf("%s: core not planned on the neural engine", name)
 		}
-		start = time.Now()
-		fn, err := Open(compiled, name, l, dim)
+		m, fn, err := Measure(compiled, name, l, dim, 50)
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
 		defer fn.Close()
-		loaded := time.Since(start)
-		out := make([]float32, dim)
-		start = time.Now()
-		if err := fn.Embed([]int32{2, 9259, 1}, out); err != nil {
-			t.Fatalf("%s: %v", name, err)
-		}
-		t.Logf("%s load %s, first predict %s, norm %.8f",
-			name, loaded.Round(time.Millisecond), time.Since(start).Round(time.Microsecond), vectorNorm(out))
-		if n := vectorNorm(out); math.Abs(n-1) > 1e-3 {
-			t.Errorf("%s: norm %f, want 1", name, n)
+		t.Logf("%s load %s, first predict %s, norm %.8f, %s per text of %d tokens (%.1f texts/s)",
+			name, m.Load.Round(time.Millisecond), m.FirstPredict.Round(time.Microsecond), m.Norm,
+			m.PerText.Round(time.Microsecond), m.Tokens, float64(time.Second)/float64(m.PerText))
+		if math.Abs(m.Norm-1) > 1e-3 {
+			t.Errorf("%s: norm %f, want 1", name, m.Norm)
 		}
 		fns[l] = fn
 	}
@@ -229,23 +213,6 @@ func TestPackage(t *testing.T) {
 		t.Logf("two different texts on s%d: cosine %.6f", lengths[0], c)
 		if c > 0.999 {
 			t.Errorf("two different texts give one vector (cosine %v)", c)
-		}
-	})
-
-	t.Run("speed", func(t *testing.T) {
-		for _, l := range lengths {
-			fn := fns[l]
-			tokens := filler(l * 3 / 4)
-			out := make([]float32, dim)
-			const rounds = 50
-			start := time.Now()
-			for range rounds {
-				if err := fn.Embed(tokens, out); err != nil {
-					t.Fatalf("s%d: %v", l, err)
-				}
-			}
-			per := time.Since(start) / rounds
-			t.Logf("s%d: %s per text of %d tokens (%.1f texts/s)", l, per.Round(time.Microsecond), len(tokens), float64(time.Second)/float64(per))
 		}
 	})
 

@@ -6,6 +6,7 @@ package coreml
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 )
@@ -52,6 +53,25 @@ func (p Placement) Conclusive() bool {
 // CPU.
 func (p Placement) OnNeuralEngine() bool {
 	return p.NeuralEngine > minNeuralEngineOps && len(p.CPUCore) == 0
+}
+
+// What a plan says of where a function's core runs.
+const (
+	VerdictOn      = "on"      // on the Neural Engine
+	VerdictOff     = "off"     // a core operator on the CPU, or too few operations on the Neural Engine
+	VerdictUnknown = "unknown" // the plan names no device for operations the answer hangs on
+)
+
+// Verdict is the judgement on a plan: whether Core ML puts the function's
+// core on the Neural Engine, or that the plan does not say.
+func (p Placement) Verdict() string {
+	switch {
+	case !p.Conclusive():
+		return VerdictUnknown
+	case p.OnNeuralEngine():
+		return VerdictOn
+	}
+	return VerdictOff
 }
 
 // coreOperator reports whether an ML program operator belongs to the
@@ -104,4 +124,63 @@ func awaitPlan(done <-chan planned, function string, timeout time.Duration, rele
 		}
 	}()
 	return 0, &LatePlanError{Function: function, Waited: timeout, Done: returned}
+}
+
+// Timing is how long the calls of one function take on this machine.
+type Timing struct {
+	Load         time.Duration // opening the function
+	FirstPredict time.Duration
+	Norm         float64       // length of the first prediction's vector
+	Tokens       int           // of each text of the speed run
+	PerText      time.Duration // mean of the speed run; 0 = none was run
+}
+
+// Measure opens one function of the compiled model and times its first
+// prediction, then rounds predictions of a text three quarters of its
+// length. The caller closes the function it returns.
+func Measure(compiled, function string, length, dim, rounds int) (Timing, *Function, error) {
+	var t Timing
+	start := time.Now()
+	fn, err := Open(compiled, function, length, dim)
+	if err != nil {
+		return t, nil, err
+	}
+	t.Load = time.Since(start)
+	out := make([]float32, dim)
+	start = time.Now()
+	if err := fn.Embed(filler(3), out); err != nil {
+		fn.Close()
+		return t, nil, err
+	}
+	t.FirstPredict = time.Since(start)
+	var sum float64
+	for _, x := range out {
+		sum += float64(x) * float64(x)
+	}
+	t.Norm = math.Sqrt(sum)
+	if rounds <= 0 {
+		return t, fn, nil
+	}
+	tokens := filler(max(length*3/4, 3))
+	t.Tokens = len(tokens)
+	start = time.Now()
+	for range rounds {
+		if err := fn.Embed(tokens, out); err != nil {
+			fn.Close()
+			return t, nil, err
+		}
+	}
+	t.PerText = time.Since(start) / time.Duration(rounds)
+	return t, fn, nil
+}
+
+// filler is a token sequence of n ids, at least two: BOS, one repeated
+// word, EOS.
+func filler(n int) []int32 {
+	out := make([]int32, n)
+	for i := range out {
+		out[i] = 9259
+	}
+	out[0], out[n-1] = 2, 1
+	return out
 }

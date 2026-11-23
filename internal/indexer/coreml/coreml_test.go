@@ -50,6 +50,30 @@ func TestPlacement_Conclusive(t *testing.T) {
 	}
 }
 
+// The judgement on a plan: on the Neural Engine, off it, or not said.
+func TestPlacement_Verdict(t *testing.T) {
+	for name, c := range map[string]struct {
+		p    Placement
+		want string
+	}{
+		"core on the neural engine, glue on the cpu":   {Placement{NeuralEngine: 6195, CPU: 14}, VerdictOn},
+		"constants without a device":                   {Placement{NeuralEngine: 6195, CPU: 14, Unknown: 900}, VerdictOn},
+		"cpu only":                                     {Placement{CPU: 6209, CPUCore: []string{"ios18.matmul"}}, VerdictOff},
+		"one core operator on the cpu":                 {Placement{NeuralEngine: 6000, CPU: 15, CPUCore: []string{"ios18.linear"}}, VerdictOff},
+		"gpu plan":                                     {Placement{GPU: 6200, CPU: 9}, VerdictOff},
+		"too few operations wherever the unknown run":  {Placement{Unknown: 80}, VerdictOff},
+		"a core operator on the cpu, others unknown":   {Placement{CPU: 1, CPUCore: []string{"ios18.matmul"}, Unknown: 6000, UnknownCore: []string{"ios18.linear"}}, VerdictOff},
+		"a core operator of unknown placement":         {Placement{NeuralEngine: 6000, Unknown: 1, UnknownCore: []string{"ios18.matmul"}}, VerdictUnknown},
+		"no device for any operation":                  {Placement{Unknown: 6209}, VerdictUnknown},
+		"too few on the neural engine, enough unknown": {Placement{NeuralEngine: 60, CPU: 10, Unknown: 80}, VerdictUnknown},
+		"no operation":                                 {Placement{}, VerdictUnknown},
+	} {
+		if got := c.p.Verdict(); got != c.want {
+			t.Errorf("%s: Verdict = %q, want %q", name, got, c.want)
+		}
+	}
+}
+
 func TestCoreOperator(t *testing.T) {
 	for name, want := range map[string]bool{
 		"ios18.conv":          true,
@@ -118,5 +142,12 @@ func TestAwaitPlan_Late(t *testing.T) {
 				t.Fatal("the plan that came late was kept")
 			}
 		}
+	}
+}
+
+// A function that cannot be opened is an error and leaves nothing to close.
+func TestMeasure_NoModel(t *testing.T) {
+	if _, fn, err := Measure(t.TempDir()+"/missing.mlmodelc", "s128", 128, 768, 1); err == nil || fn != nil {
+		t.Fatalf("Measure of a missing model = %v, %v", fn, err)
 	}
 }
