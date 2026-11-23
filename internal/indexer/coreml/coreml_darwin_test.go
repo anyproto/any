@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"math"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -83,12 +84,15 @@ func TestPackage(t *testing.T) {
 		}
 		defer os.RemoveAll(tmp) // left by a failed copy; gone after a rename
 		if err := os.Rename(tmp, compiled); err != nil {
-			// Core ML's temporary directory can sit on another volume:
-			// copy beside the destination, then move into place whole.
-			stage := compiled + ".copying"
-			_ = os.RemoveAll(stage)
+			// Core ML's temporary directory can sit on another volume: copy
+			// into a stage of this test's own beside the destination, then
+			// move into place whole. A failed copy or rename leaves no stage.
+			stage, err := os.MkdirTemp(filepath.Dir(compiled), filepath.Base(compiled)+".copying-")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer os.RemoveAll(stage)
 			if err := os.CopyFS(stage, os.DirFS(tmp)); err != nil {
-				_ = os.RemoveAll(stage)
 				t.Fatalf("copy the compiled model from %s: %v", tmp, err)
 			}
 			if err := os.Rename(stage, compiled); err != nil {
