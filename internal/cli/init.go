@@ -137,8 +137,8 @@ func printInitResult(cmd *cobra.Command, accountId string, created bool) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintln(cmd.OutOrStdout(), string(out))
-	return nil
+	_, err = fmt.Fprintln(cmd.OutOrStdout(), string(out))
+	return err
 }
 
 // rootWalletID best-effort derives the root (default) wallet's account
