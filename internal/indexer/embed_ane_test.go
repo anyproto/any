@@ -1031,3 +1031,32 @@ func TestCoreMLBackend_PrepareWaitsForFiles(t *testing.T) {
 		t.Fatalf("prepare with half a package = %v, want errANENotReady", err)
 	}
 }
+
+// A compile that fails once another process installed the compiled model
+// keeps that model, as a failed install does: Core ML stays on.
+func TestCoreMLBackend_CompileFailsAfterAnotherInstall(t *testing.T) {
+	for _, installed := range []bool{true, false} {
+		pkg := &coreMLPackage{name: "m", files: []coreMLFile{{"Manifest.json", ""}}}
+		dir := pkg.dir(t.TempDir())
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "Manifest.json"), []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		b := newCoreMLBackend(pkg, dir, 4, t.Logf)
+		b.tempDir = t.TempDir()
+		b.hasEngine = func() (bool, error) { return true, nil }
+		b.compile = func(string) (string, error) {
+			if installed {
+				if err := os.MkdirAll(filepath.Join(b.compiled, "weights"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			return "", errors.New("no space left on device")
+		}
+		if err := b.prepare(); installed != (err == nil) {
+			t.Fatalf("another install %v: the failed compile returned %v", installed, err)
+		}
+	}
+}

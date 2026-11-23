@@ -755,23 +755,27 @@ func (f coreMLFile) verify(dir string) error {
 // coreMLBackend runs a package through Core ML. The compiled model sits
 // next to the package and is shared by every process under the root.
 type coreMLBackend struct {
-	pkg      *coreMLPackage
-	dir      string // the .mlpackage
-	compiled string // the .mlmodelc
-	tempDir  string // where a compile bound for another volume waits for its copy
-	dim      int
-	logf     func(format string, args ...any)
-	open     func(compiled, function string, length, dim int) (aneFunction, error)
+	pkg       *coreMLPackage
+	dir       string // the .mlpackage
+	compiled  string // the .mlmodelc
+	tempDir   string // where a compile bound for another volume waits for its copy
+	dim       int
+	logf      func(format string, args ...any)
+	hasEngine func() (bool, error)
+	compile   func(pkg string) (string, error)
+	open      func(compiled, function string, length, dim int) (aneFunction, error)
 }
 
 func newCoreMLBackend(pkg *coreMLPackage, dir string, dim int, logf func(string, ...any)) *coreMLBackend {
 	return &coreMLBackend{
-		pkg:      pkg,
-		dir:      dir,
-		compiled: strings.TrimSuffix(dir, ".mlpackage") + ".mlmodelc",
-		tempDir:  os.TempDir(),
-		dim:      dim,
-		logf:     logf,
+		pkg:       pkg,
+		dir:       dir,
+		compiled:  strings.TrimSuffix(dir, ".mlpackage") + ".mlmodelc",
+		tempDir:   os.TempDir(),
+		dim:       dim,
+		logf:      logf,
+		hasEngine: coreml.HasNeuralEngine,
+		compile:   coreml.Compile,
 		open: func(compiled, function string, length, dim int) (aneFunction, error) {
 			fn, err := coreml.Open(compiled, function, length, dim)
 			if err != nil {
@@ -792,7 +796,7 @@ func (b *coreMLBackend) prepare() (err error) {
 	// Written before the first Core ML call: a crash inside one is then
 	// a death with the Neural Engine in use.
 	b.logf(aneStarting)
-	ok, err := coreml.HasNeuralEngine()
+	ok, err := b.hasEngine()
 	if err != nil {
 		return err
 	}
@@ -809,9 +813,10 @@ func (b *coreMLBackend) prepare() (err error) {
 		return err
 	}
 	start := time.Now()
-	tmp, err := coreml.Compile(b.dir)
+	tmp, err := b.compile(b.dir)
 	if err != nil {
-		return err
+		// Another process can have installed the model while this one compiled.
+		return installedMeanwhile(b.compiled, err)
 	}
 	if err := installDir(tmp, b.compiled, b.tempDir); err != nil {
 		return fmt.Errorf("install the compiled model: %w", err)
