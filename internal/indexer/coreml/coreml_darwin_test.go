@@ -95,8 +95,13 @@ func TestPackage(t *testing.T) {
 			if err := os.CopyFS(stage, os.DirFS(tmp)); err != nil {
 				t.Fatalf("copy the compiled model from %s: %v", tmp, err)
 			}
+			// A server that installed the model during the copy wins: its
+			// copy is the one used.
 			if err := os.Rename(stage, compiled); err != nil {
-				t.Fatal(err)
+				if st, statErr := os.Stat(compiled); statErr != nil || !st.IsDir() {
+					t.Fatal(err)
+				}
+				t.Logf("another process installed %s during the copy", compiled)
 			}
 		}
 		t.Logf("compiled in %s", time.Since(start).Round(time.Millisecond))
