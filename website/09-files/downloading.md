@@ -31,11 +31,17 @@ The response carries the stored mime as `Content-Type` (octet-stream fallback �
 
 ## When the bytes are not local
 
-Content that is not yet local streams in on demand, and every fetched block persists — repeated reads accrete toward a complete local copy. The SDK reads from a local-network peer that holds the complete file first (`p2p.enabled`, on by default) and otherwise from the network's public read base, which serves durable files only — so an `inflight` file can already be readable from a peer; try the content GET as soon as the row appears. To fetch a whole file ahead of time, [pin](cache.html) it.
+Content that is not yet local streams in on demand, and every fetched block persists — repeated reads accrete toward a complete local copy. The SDK reads from a peer that holds the complete file first — on the local network (`p2p.enabled`, on by default) or over global p2p, where a file that is not durable gets peers of its space dialed for it, its author's devices first — and otherwise from the network's public read base, which serves durable files only. So an `inflight` file can already be readable from a peer; try the content GET as soon as the row appears. To fetch a whole file ahead of time, [pin](cache.html) it.
 
-A file whose bytes are neither local nor fetchable yet answers **`409 file.not_available`**. This is a retry-later resource state, not a fault: no peer holds the bytes and the file is not durable yet (its sender's backup has not completed), or the network advertises no public read base for fetches. The signal that it became fetchable is the payload row gaining `networkSign` — an `updated` frame on `…/files/query/subscribe`, or `durable: true` on a re-GET of `…/files/:fileId`. Wait for that event rather than polling in a loop; see [status and durability](status-and-durability.html).
+A request whose first byte is neither local nor fetchable yet answers **`409 file.not_available`** with no body — never a `200` followed by nothing, also for a file this device holds in part:
 
-Downloads are plain HTTP responses, not SSE: one in flight when the server stops or switches accounts is cut a second later, even if the client stopped reading, and the client retries with a `Range` from where it stopped.
+```json
+{ "error": { "code": "file.not_available", "message": "…", "details": { "spaceId": "…", "fileId": "…" } } }
+```
+
+This is a retry-later resource state, not a fault: no reachable peer holds the bytes and the file is not durable yet (its sender's backup has not completed), or the network advertises no public read base for fetches. The signal that it became fetchable is the payload row gaining `networkSign` — an `updated` frame on `…/files/query/subscribe`, or `durable: true` on a re-GET of `…/files/:fileId`. Wait for that event rather than polling in a loop; see [status and durability](status-and-durability.html).
+
+Downloads are plain HTTP responses, not SSE. One whose source goes away after the first byte is cut short, and one in flight when the server stops or switches accounts is cut a second later, even if the client stopped reading. Either way the client retries with a `Range` from where it stopped.
 
 > **Why it matters.** The same URL works with the network down, as long as the bytes are local — and once fetched, they stay. A member who opened a photo once on a train keeps it without any "make available offline" step, because the local store is the primary copy, not a cache in front of someone else's server.
 

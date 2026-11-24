@@ -7,7 +7,7 @@ order: 30
 
 A file is *registered* the instant attach returns; it is *durable* once the network holds a verified backup. Every status surface speaks the same three-state vocabulary, and none of it blocks the write path — a device with no connectivity attaches files exactly like a connected one.
 
-Durability is about the *network* copy. Availability — whether the bytes can be read now — also counts this device and local-network peers, so a file can be fetchable from a peer while its backup is still `inflight` ([Downloading](downloading.html)).
+Durability is about the *network* copy. Availability — whether the bytes can be read now — also counts this device and its peers, so a file can be fetchable from a peer while its backup is still `inflight` ([Downloading](downloading.html)).
 
 ## States
 
@@ -18,6 +18,8 @@ Durability is about the *network* copy. Availability — whether the bytes can b
 | `limited` | the network refused backup for a space or account storage limit (`GET /v1/account/limits` reads the account's pool); retried on a slow cadence and on `POST …/retry` |
 
 Inline files (under 4096 bytes) are born `durable`. Larger files start `inflight` and flip to `durable` on a persistent background queue that starts the upload as soon as attach returns, retries with backoff and survives restarts. The one exception is content already backed up in the space: an attach that deduplicates against an already-durable file is born `durable`.
+
+The backup is not tied to the device that attached the file. A device that downloaded an `inflight` file in full, and may write to the space, queues the upload itself 45–90 seconds later; whichever device finishes first writes `networkSign` and the others stop.
 
 ## Reading status
 

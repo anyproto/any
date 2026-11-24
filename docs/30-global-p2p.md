@@ -131,6 +131,12 @@ dial that finds nobody home costs about 13 KB of retransmitted
 handshake; the rate limit (6/min, one in flight) and the per-tier
 backoff bound that.
 
+A device keeps only as many global connections as cover its spaces. A
+read of a file that is not durable and that no connected peer holds
+dials more peers of that space, the file author's devices first, at
+most three per read and within the same rate limit; those connections
+close after five idle minutes.
+
 While a sync node stream is up, global peers receive nothing: head
 updates go through the nodes. A device with no node stream asks its
 connected global peers for pushes and becomes their sole path.

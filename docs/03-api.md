@@ -4432,16 +4432,18 @@ reader is seekable). Browser tags work directly:
 <img src="http://127.0.0.1:2046/v1/spaces/SP/files/FILE/content">
 ```
 
-Content not yet local streams in on demand — from a LAN peer holding
-the file when local-network p2p is enabled, otherwise (or when the peer
-fails) from the network's public read base; every fetched block
-persists, so repeated reads accrete toward a complete local copy. A
-file whose bytes are not local and not fetchable from either source —
-no peer holds it, and it is not durable yet or the network advertises
-no public read base — returns `409 file.not_available`: a
-**retry-later resource state**, not a fault. The signal that it became
-fetchable is the row's `networkSign` appearing (a row-update event on
-`…/files/query/subscribe`, or `durable: true` on a re-GET).
+Content not yet local streams in on demand — from a peer holding the
+file (local-network or global p2p), otherwise (or when the peer fails)
+from the network's public read base; every fetched block persists, so
+repeated reads accrete toward a complete local copy. When the first
+byte of the requested range is not local and not fetchable from either
+source — no reachable peer holds it, and the file is not durable yet or
+the network advertises no public read base — the reply is
+`409 file.not_available` with no body: a **retry-later resource
+state**, not a fault. A source lost after the first byte cuts the body
+(`docs/17-files.md` § Download semantics). The signal that the file
+became fetchable is the row's `networkSign` appearing (a row-update
+event on `…/files/query/subscribe`, or `durable: true` on a re-GET).
 
 #### Payload-row query / subscribe
 

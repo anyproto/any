@@ -62,8 +62,11 @@ No fileV2 nodes in the nodeconf (or no connectivity) means files sit
 `inflight` until the network appears; a storage-limit refusal is
 `limited`. Several backups run at once, files that share content share
 one upload, and deleting a file cancels its upload. From the moment
-attach returns, local-network peers can fetch the file from this device
-(§ Reads) — before and regardless of the backup.
+attach returns, peers can fetch the file from this device (§ Download
+semantics) — before and regardless of the backup. A device that
+downloaded such a file in full, and may write to the space, queues the
+backup itself 45–90 s later, so the file becomes durable even when the
+device that attached it never uploads it.
 
 `GET /files/subscribe` streams `FileStatus` on **local** transitions
 only — attach, backup progress/failure, pin completion, manual
@@ -102,16 +105,20 @@ regular HTTP resource — stored mime, `Content-Disposition`,
 to DAG offsets, so a video scrub does not download the prefix).
 Content not yet local streams in on demand and every fetched block
 persists — reads accrete toward a complete local copy. The SDK fetches
-from a local-network peer that holds the complete file (`p2p.enabled`,
-on by default) and otherwise from the network's public read base,
-which serves durable files only. When
-neither can serve the bytes — no peer holds them and the file isn't
-durable yet, or the network advertises no public read base — the
-endpoint returns `409 file.not_available`; retry once the row gains
-`networkSign`. Downloads are plain HTTP responses (not SSE): one in
+from a peer that holds the complete file — on the local network
+(`p2p.enabled`, on by default) or over global p2p, where a file that is
+not durable also gets peers of its space dialed for it
+(`30-global-p2p.md`) — and otherwise from the network's public read
+base, which serves durable files only. When
+nothing can serve the first byte of the requested range — no reachable
+peer holds it and the file isn't durable yet, or the network advertises
+no public read base — the endpoint returns `409 file.not_available`
+and no body, also for a file this device holds in part; retry once the
+row gains `networkSign`. A source lost after the first byte cuts the
+body. Downloads are plain HTTP responses (not SSE): one in
 flight when the engine tears down (shutdown, logout, account switch)
-is cut 1s later, even if its client stopped reading; the client
-retries with a `Range` from where it stopped.
+is cut 1s later, even if its client stopped reading. After a cut the
+client retries with a `Range` from where it stopped.
 
 ## Cache, offload, pin
 
