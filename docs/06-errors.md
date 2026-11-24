@@ -173,7 +173,7 @@ device.pruned                    # 409 — this device was pruned: PUT /me is ab
 
 file.not_found                   # 404 — unknown fileId / objectId, or files query before the first attach
 file.not_durable                 # 409 — offload refused: local bytes are the only copy (not backed up yet)
-file.not_available               # 409 — the first byte asked for is not local and not fetchable yet (no reachable peer holds it and it is not durable, or no public read base); retry after the row gains networkSign. Also an avatar download whose bytes the network cannot serve yet
+file.not_available               # 409 — the first byte asked for is not local and not fetchable yet (no reachable peer holds it, and it is not durable yet or there is no public read base); retry after the row gains networkSign. Also an avatar download whose bytes the network cannot serve yet
 file.variant_invalid             # 400 — variant/variantOf pairing broken, or original on a different object
 
 history.version_not_found        # 404 — unknown version (ChangeId), or not in this object's DAG

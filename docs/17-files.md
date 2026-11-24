@@ -111,10 +111,10 @@ not durable also gets peers of its space dialed for it
 (`30-global-p2p.md`) — and otherwise from the network's public read
 base, which serves durable files only. When
 nothing can serve the first byte of the requested range — no reachable
-peer holds it and the file isn't durable yet, or the network advertises
-no public read base — the endpoint returns `409 file.not_available`
-and no body, also for a file this device holds in part; retry once the
-row gains `networkSign`. A source lost after the first byte cuts the
+peer holds it, and the file isn't durable yet or the network advertises
+no public read base — the endpoint returns `409 file.not_available`,
+also for a file this device holds in part; retry once the row gains
+`networkSign`. A source lost after the first byte cuts the
 body. Downloads are plain HTTP responses (not SSE): one in
 flight when the engine tears down (shutdown, logout, account switch)
 is cut 1s later, even if its client stopped reading. After a cut the
