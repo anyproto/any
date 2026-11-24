@@ -92,6 +92,7 @@ space.not_invite_pending         # 409 — invite accept/decline on a space not 
 space.join_not_pending           # 409 — POST …/acl/cancel-join with nothing to withdraw: the row is not joining, or the owner accepted first (the row settles to active on its own); a request gone with no membership behind it is settled by the call itself (204, row deleted)
 space.read_only                  # 403 — synced write into a space this account cannot write (guest access or reader role)
 space.derived_unknown            # 404 — POST /v1/spaces/derived/:name outside the embedded registry
+space.derived_not_created        # 404 — POST /v1/spaces/derived/:name on a device that holds no row for that derived space; none is created
 space.derived_undeletable        # 409 — DELETE on a derived space; derived spaces are permanent
 space.derived_unshareable        # 409 — invite create, guest key or direct add on a derived space; a derived space belongs to its account alone
 space.unsupported                # 405 — the route is not available on the tech space (allowed there: bundles, type reads and dataset declarations on bundle roots, records on bundle roots, GET space, sync-status, debug)

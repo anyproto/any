@@ -144,7 +144,7 @@ any space settings <spaceId> [--set k=v]... [--set-bool k=true|false]... [--set-
 any space delete <spaceId> --yes                    # delete a space (irreversible)
 any space sync   <spaceId>                          # force a head-sync round now
 any space derived                                   # list well-known derived spaces (name, spaceId, created)
-any space derived create <name>                     # materialize one (idempotent)
+any space derived open <name>                       # open one this device holds (creates none)
 any space query      [--filter JSON] [--sort ...] [--limit N] [--offset N] [--total] [--projection ...] [--dataset spaces|profile]
 any space subscribe  [same flags]                   # windowed space-list SSE
 any datasets [<spaceId>]                            # dataset schemas (JSON Schema + x-scope)
@@ -201,8 +201,8 @@ on success). Use it to converge on demand instead of waiting for the
 periodic headsync timer.
 
 `any space derived` is the registry of well-known derived spaces,
-resolved and materialized by name (`docs/03-api.md` § Spaces → Derived
-spaces).
+resolved by name; `open` opens one this device holds and creates none
+(`docs/03-api.md` § Spaces → Derived spaces).
 
 `any space update` uses cobra's `Changed` semantics: a flag left unset
 leaves the field as-is, a flag set to an empty string clears it.

@@ -77,7 +77,7 @@ curl -X POST http://127.0.0.1:2046/v1/auth -H 'Content-Type: application/json' -
 
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
-| POST | `/v1/spaces` | `{name?, description?, iconCid?, spaceType?}` | 201 `SpaceInfo` | |
+| POST | `/v1/spaces` | `{name?, description?, iconCid?, spaceType?, anySpaceType?}` | 201 `SpaceInfo` | `anySpaceType` is a lowercase slug of at most 64 characters (`[a-z0-9][a-z0-9._-]*`), given at create only; `400 request.invalid_field` otherwise |
 | GET | `/v1/spaces` | `?status=all\|<status>` | `{spaces: [SpaceInfo]}` | active-only by default; deleted rows are sticky tombstones |
 | POST | `/v1/spaces/query` | snapshot body + `dataset?` (`spaces` \| `profile`) | `{records, total?, hasNext?}` | raw tech-space rows; other datasets `400 request.invalid_field` |
 | POST | `/v1/spaces/query/subscribe` | same | SSE | see [Space list](../realtime/space-list.html) |
@@ -88,12 +88,12 @@ curl -X POST http://127.0.0.1:2046/v1/auth -H 'Content-Type: application/json' -
 | DELETE | `/v1/spaces/:spaceId` | — | 204 | real offline-first deletion; on a `joining` row it withdraws the request; `409 space.derived_undeletable`, `404 space.not_found` |
 | POST | `/v1/spaces/join` | `{inviteToken, metadata?}` | 201 \| 202 `SpaceInfo` | 202 while the request awaits approval (status `joining`); guest tokens auto-detected (201 once loaded, 202 while loading); `400 invite.invalid`; `410 invite.revoked` once the owner revoked or replaced a request-to-join invite; `409 space.deleted` on a space this account deleted; `409 space.already_member` for a guest token of a space already tracked |
 | GET | `/v1/spaces/derived` | — | `{spaces: [{name, spaceId, created, status?}]}` | resolves, never creates |
-| POST | `/v1/spaces/derived/:name` | — | 201 `SpaceInfo` | idempotent; `404 space.derived_unknown`, `409 space.deleted` |
+| POST | `/v1/spaces/derived/:name` | — | 200 `SpaceInfo` | opens a derived space this device holds a row for, creates none; `404 space.derived_unknown`, `404 space.derived_not_created`, `409 space.deleted` |
 | GET | `/v1/spaces/:spaceId/datasets` | — | `{datasets: [{name, schema, owners?, module, shared?, indexes?}]}` | JSON Schema with `x-scope` per field; `owners` = the types whose parts declare the storage collection; `shared: true` marks a shared dataset; `indexes` lists its valid declared indexes, `[{key, fields, sparse?}]` |
 | GET | `/v1/datasets` | — | `{datasets: [{name, schema}]}` | tech-space system datasets |
 | POST | `/v1/spaces/:spaceId/search` | `{query, scopes?, limit?, mode?, require?, exclude?, maxData?, passages?, filter?}` | `{hits, mode, vectorStatus, truncated?, scoreScale?}` | local index, not an SDK method; `mode` is `hybrid` (default), `fts`, `vector` or `title`; `hybrid` and `fts` lead with the objects whose name matches, marked `match` on the hit, and `title` lists those alone (no `scopes` / `passages`: `400 request.invalid_field`); `limit` counts records (default 10), `passages` ≤ 10; `filter` is an objects-query filter on the host object's row, `truncated` marks a short filtered page that may not be exhaustive; `400 filter.invalid`, `400 filter.unknown_operator`, `409 index.disabled`, `400 index.no_embedder`, `503 index.embedder_unavailable`, `400 search.bad_mode`, `400 search.bad_scope`, `503 index.not_ready` |
 
-`SpaceInfo` fields worth knowing: `spaceIndexObjectId`, `createdAt`, `spaceType` (`any.space` \| `any.onetoone`), `author`, `ownRole` (`owner\|admin\|writer\|reader\|guest\|none`), `settings`, `push`, `derived`, `status`.
+`SpaceInfo` fields worth knowing: `spaceIndexObjectId`, `createdAt`, `spaceType` (`any.space` \| `any.onetoone`), `anySpaceType` (what the account uses the space for, `bao` for its agent space; account-private), `author`, `ownRole` (`owner\|admin\|writer\|reader\|guest\|none`), `settings`, `push`, `derived`, `status`.
 
 ```bash
 curl -X POST http://127.0.0.1:2046/v1/spaces -H 'Content-Type: application/json' -d '{"name":"Notes"}'

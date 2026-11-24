@@ -57,7 +57,7 @@ Same body for every non-2xx. `code` is a dotted, machine-readable handle grouped
 
 ## 7. POSTs are not idempotent
 
-Each POST produces a new DAG change; retrying a create makes two objects. The deliberate exceptions address a stable key: `POST /v1/spaces/:id/upsert`, where the caller-supplied record id is the idempotency key and an identical re-run diffs to nothing ([Upsert](../database/upsert.html)), and the adopt-or-install calls — catalog setup, bundle ensure, derived spaces — which land on the same install however often they run ([Bundles](../collaboration/bundles.html)).
+Each POST produces a new DAG change; retrying a create makes two objects. The deliberate exceptions address a stable key: `POST /v1/spaces/:id/upsert`, where the caller-supplied record id is the idempotency key and an identical re-run diffs to nothing ([Upsert](../database/upsert.html)), and the adopt-or-install calls — catalog setup, bundle ensure — which land on the same install however often they run ([Bundles](../collaboration/bundles.html)).
 
 ## 8. Bodies are strict, output is pretty JSON
 

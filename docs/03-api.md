@@ -659,11 +659,44 @@ streams — see [events](04-events.md)).
 | POST   | `/v1/spaces/:spaceId/invite/decline`      | `Service.DeclineInvite`             |
 | POST   | `/v1/spaces/:spaceId/search`    | local search index (no SDK method — see below) |
 | GET    | `/v1/spaces/derived`            | embedded registry → `Service.DeriveId` per entry |
-| POST   | `/v1/spaces/derived/:name`      | `Service.Derive` for a registry entry |
+| POST   | `/v1/spaces/derived/:name`      | `Service.Derive` on a registry entry this device holds a row for |
 
-`POST /v1/spaces` takes `{name?, description?, iconCid?, spaceType?}`
+`POST /v1/spaces` takes
+`{name?, description?, iconCid?, spaceType?, anySpaceType?}`
 (`spaceType` is `any.space` or empty; anything else is
 `400 request.invalid_field`) → `201 SpaceInfo`.
+
+**`anySpaceType` says what the account uses a space for.** It is a
+lowercase slug of at most 64 characters (`[a-z0-9][a-z0-9._-]*`;
+anything else is `400 request.invalid_field`), given at create; no
+route changes it afterwards. `SpaceInfo.anySpaceType` reads it back on
+every space route, list and query rows included; a space the account
+gave no use omits it. The value is the account's own: it is stored on
+the account's row of the space in the tech space, syncs across the
+account's devices with the space list, is readable before the space
+itself has loaded, and is never visible to the space's other members.
+A device whose `any` predates the field receives the row without it,
+and can keep reading it that way after it updates.
+
+**The account's agent space carries `anySpaceType: "bao"`.** A client
+finds it in the space list: the active row with that value, and with
+more than one the row with the earliest `createdAt` (the lower `id` on
+a tie). It creates it with
+`POST /v1/spaces {"name": "Bao", "anySpaceType": "bao"}`, which works
+with no network: the space index is written with the space, so its
+bundles work at once (§ Bundles). Creating is an explicit act: the
+create-account flow, or a user's "set up" action on an account that has
+no such space — never a boot step. A device that logged in has synced
+the space list once (§ Auth), so an absent row there means no device
+had created one by then, or that this device received the row while
+its `any` predated the field. On a later start the list is what the
+device held when it stopped: the account opens without waiting for the
+network, and a row another device created meanwhile arrives with the
+tech space's next sync. So a client offers the create only while the
+list has no such row and the tech space reads `state: "synced"`
+(`GET /v1/spaces/<techSpaceId>/sync-status`, § Sync status), and keeps
+watching the list: a row from a device that was offline can still
+arrive.
 
 **Raw `Service.Derive` / `DeriveId` are not exposed.** A client-supplied
 seed would mint a *permanent* space (derived spaces cannot be deleted)
@@ -776,53 +809,49 @@ rules, keystore placement, decrypt steps — in docs/20-push.md
 
 #### Derived spaces
 
-Well-known per-account spaces derived deterministically from the
+A derived space is a per-account space whose id is computed from the
 account keys and a fixed seed: the same account resolves the same
-spaceId on every device, so all clients and devices converge on *the*
-space without a create/find handshake (no check-then-create races, no
-duplicate "agent space" per client). The vocabulary is a small
-**embedded registry** compiled into `any`
-(`internal/server/derivedspaces.go`; seeds follow the
-`any/space/<name>/v1` convention) — one entry: `bao`, the account's
-agent space.
+spaceId on every device. The vocabulary is a small **embedded
+registry** compiled into `any` (`internal/server/derivedspaces.go`;
+seeds follow the `any/space/<name>/v1` convention) — one entry: `bao`.
+
+**The server creates no derived space.** An account's agent space is a
+regular space with `anySpaceType: "bao"` (above). An account can hold a
+derived `bao` space that an earlier installation created as its agent
+space: the account keeps it and the server opens it. Its row carries no
+`anySpaceType`, so it is not the agent space, and this registry is the
+one place that names it.
 
 ```
 GET  /v1/spaces/derived        → 200 {spaces: [{name, spaceId, created, status?}]}
-POST /v1/spaces/derived/:name  → 201 SpaceInfo   (404 space.derived_unknown,
+POST /v1/spaces/derived/:name  → 200 SpaceInfo   (404 space.derived_unknown,
+                                                  404 space.derived_not_created,
                                                   409 space.deleted)
 ```
 
 - **GET resolves, never creates.** Ids are computed once at engine boot
   (`Service.DeriveId` — pure computation over the account keys);
-  `created` reports whether a usable tech-space row exists —
-  materialized here or on any of the account's devices (rows sync).
-  `created: false` means no device had created the space as of this
-  device's last sync of the space list; an account that logged in here
-  has synced it at least once (§ Auth).
+  `created` reports whether this device holds a usable tech-space row:
+  written here, or received from another of the account's devices
+  (rows sync). `created: false` means no device had created the space
+  as of this device's last sync of the space list; an account that
+  logged in here has synced it at least once (§ Auth).
   `status` is the row status when a row exists; a `deleted` row
   reports `created:false`.
-- **POST creates the space, or opens the one that exists**
-  (`Service.Derive`), and returns the full single-space `SpaceInfo`.
-  With no row it creates: storage, the space index and the row are
-  written locally, with no network, and the registry's display name
-  becomes the space name (`DeriveRequest.Name` — not part of the id
-  derivation; a later rename via `PATCH /v1/spaces/:id` wins). The
-  space's bundles work at once (§ Bundles). With a row the space was
-  created before, here or on another device: nothing is written, and
-  on a device that downloaded it the bundles answer once its registry
-  has arrived. Repeat calls land on the same space; a tombstoned row
-  is refused with `409 space.deleted` rather than reported as success.
-- **Creating is an explicit act.** Call POST when the user (or the
-  product flow that owns the space) decides to create it — not on every
-  boot. Two devices that both create while apart land on the same
-  space, but each sets it up on its own, and their bundles can fork.
+- **POST opens a derived space this device holds a row for**
+  (`Service.Derive` on an existing row) and returns the full
+  single-space `SpaceInfo`. It creates no space; on a device that
+  downloaded the space its bundles answer once its registry has arrived
+  (§ Bundles). Without a row the answer is
+  `404 space.derived_not_created`, and none is written. A tombstoned
+  row is refused with `409 space.deleted`.
 - **Derived spaces are permanent.** `DELETE /v1/spaces/:spaceId`
   refuses them with `409 space.derived_undeletable` — the
   deterministic id means delete + re-derive would replace history, and
   the sticky deleted tombstone would wedge the well-known id for the
   account's lifetime. Enforcement is layered: the server pre-checks the
-  boot-resolved registry ids (covers not-yet-materialized entries), the
-  SDK refuses rows carrying the synced `derived` flag
+  boot-resolved registry ids (covers ids the account has no row for),
+  the SDK refuses rows carrying the synced `derived` flag
   (`space.ErrIsDerivedSpace`), its space-index handler drops
   `remoteStatus=deleted` writes on flagged rows from any peer, and its
   deletion reconciler exempts them. `SpaceInfo.derived` surfaces the
@@ -5286,6 +5315,6 @@ A POST write is **not** idempotent unless its section says so — each
 call produces a new DAG change, and there is no `Idempotency-Key`
 header. The documented exceptions converge on state rather than
 replaying a change: bundle ensure, catalog setup, setting the type and
-filing under a collection, the 1-1 and derived-space routes, and `POST /v1/spaces/:spaceId/upsert`
+filing under a collection, the 1-1 route, and `POST /v1/spaces/:spaceId/upsert`
 (§ Upsert records), where the caller-supplied record id is the
 idempotency key and an identical re-run emits no change.

@@ -79,7 +79,7 @@ any space settings <spaceId> [--set k=v]... [--set-bool k=true|false]... [--set-
 any space delete   <spaceId> --yes
 any space sync     <spaceId>                         # force one head-sync round
 any space derived                                    # list well-known derived spaces
-any space derived create <name>                      # materialize one (idempotent)
+any space derived open <name>                        # open one this device holds (creates none)
 any space query      [--dataset spaces|profile] [--filter J] [--sort K] [--limit N] [--offset N] [--total] [--projection P]
 any space subscribe  [same flags]                    # live space list, one frame per line
 any datasets [<spaceId>]                             # dataset schemas (JSON Schema + x-scope)
