@@ -1,13 +1,24 @@
 ---
 title: Child spaces
-description: Spaces created under a parent space — who can do what, the refusal reasons, governing a child from the parent without reading it, rotation pending and the limits.
+description: Organizations and the spaces created under them — the two space types, who can do what, the refusal reasons, governing a child from the parent without reading it, no guest role, rotation pending and the limits.
 order: 45
 ---
 # Child spaces
 
-A space can be created under a **parent** space. The child is a full space: its own ACL, its own read key, its own members. Membership in the parent gives no access to it. The parent's owner and admins list a child and remove its members, and the parent's owner hands it to another member or deletes it. They read a child only when they are members of it.
+An **organization** is a space under which spaces are created: it is their **parent**, and they are its **children**. A child is a full space: its own ACL, its own read key, its own members. Membership in the parent gives no access to it. The parent's owner and admins list a child and remove its members, and the parent's owner hands it to another member or deletes it. They read a child only when they are members of it.
 
-A parent is a regular top-level space. The tech space, a [one-to-one](one-to-one.html) space, a [derived space](derived-spaces.html) and a child have no children: nesting has one level.
+## The two types
+
+| | `type` and `spaceType` | Created by |
+|---|---|---|
+| Organization | `any.organization` | `POST /v1/spaces` with `spaceType: "any.organization"` |
+| Child | `any.organization.space` | `POST /v1/spaces` with `parentSpaceId` |
+
+The type is in the signed, immutable [space header](../understanding/spaces-and-trees.html): a space is created as an organization, and a space of another type never becomes one. Read it from `type`, not from `spaceType`: a derived space carries there a free-text tag its application chooses. An organization is otherwise a space like `any.space`: objects, chats, files, members and invites work the same. Two things differ: it has children, and neither it nor a child has a [guest role](#no-guest-role).
+
+Only an organization has children. A space of type `any.space`, the tech space, a [one-to-one](one-to-one.html) space, a [derived space](derived-spaces.html) and a child have none: nesting has one level.
+
+A device on a release that does not know the two types lists, joins and opens an organization and its children as ordinary spaces, under these type strings. It creates neither.
 
 ## Who can do what
 
@@ -16,7 +27,6 @@ A parent is a regular top-level space. The tech space, a [one-to-one](one-to-one
 | Create a child | a writer, an admin or the owner of the parent |
 | Read or write a child's data | the members of the child |
 | Add a member to a child | the child's admins and owner, an admin below the `admin` role; only members of the parent can be added |
-| Give outsiders read-only access to a child | the child's owner, with a [guest key](invites.html) |
 | List a parent's children | the parent's admins and owner |
 | Remove a member of a child | the child's admins and owner; the parent's admins and owner, without the child's read key |
 | Change a child's owner | the child's owner; the parent's owner |
@@ -29,7 +39,7 @@ A parent is a regular top-level space. The tech space, a [one-to-one](one-to-one
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| POST | `/v1/spaces` | with `parentSpaceId`: create a child |
+| POST | `/v1/spaces` | with `spaceType: "any.organization"`: create an organization; with `parentSpaceId`: create a child |
 | POST | `/v1/spaces/:spaceId/retry-push` | ask the coordinator now to accept a refused child |
 | GET | `/v1/spaces/:spaceId/children` | the children of a parent, for its admins and owner |
 | GET | `/v1/children/:childId/members` | the accounts of a child, read from the parent side |
@@ -39,7 +49,21 @@ A parent is a regular top-level space. The tech space, a [one-to-one](one-to-one
 
 In `/v1/spaces/:spaceId/children` the id is the parent's. The routes under `/v1/children/:childId` take the child's id alone: the coordinator reads the parent from the child's header.
 
-## Creating a child
+## Creating an organization and a child
+
+The parent is created as an organization:
+
+```bash
+curl -s -X POST http://127.0.0.1:2046/v1/spaces \
+  -H 'Content-Type: application/json' -d '{"name": "Acme", "spaceType": "any.organization"}'
+```
+
+```json
+{ "id": "bafyrei…", "name": "Acme", "status": "active", "ownRole": "owner",
+  "type": "any.organization", "spaceType": "any.organization" }
+```
+
+A child names it as `parentSpaceId`:
 
 ```bash
 curl -s -X POST http://127.0.0.1:2046/v1/spaces \
@@ -48,20 +72,24 @@ curl -s -X POST http://127.0.0.1:2046/v1/spaces \
 
 ```json
 { "id": "bafyrei…", "parentSpaceId": "bafyrei…", "name": "Design",
-  "status": "active", "ownRole": "owner", "spaceType": "any.space" }
+  "status": "active", "ownRole": "owner",
+  "type": "any.organization.space", "spaceType": "any.organization.space" }
 ```
 
 ```bash
+any space create --name Acme --type any.organization
 any space create --name Design --parent $PARENT
 ```
 
-The create is local, like any other: it needs no network, the caller owns the child, and nothing is written to the parent. `SpaceInfo.parentSpaceId` names the parent from then on and never changes. A member finds the children it belongs to in its own [space list](../realtime/space-list.html), by that field:
+Only the second form creates a child: `spaceType` beside `parentSpaceId` is `any.organization.space` or empty, and that type with no `parentSpaceId` is `400 request.invalid_field`.
+
+Both creates are local, like any other, and need no network. The caller owns the child, and nothing is written to the parent. `SpaceInfo.parentSpaceId` names the parent from then on and never changes. A member finds the children it belongs to in its own [space list](../realtime/space-list.html), by that field:
 
 ```bash
 any space query --filter '{"parentSpaceId": "'$PARENT'"}' --sort -createdAt,-id --limit 100
 ```
 
-The parent is a space of the account's own list, and the call refuses what that list already shows, naming the parent in `details.parentSpaceId`:
+The parent is an organization of the account's own list, and the call refuses what that list already shows, naming the parent in `details.parentSpaceId`:
 
 | Status | Code | When |
 |--------|------|------|
@@ -69,20 +97,26 @@ The parent is a space of the account's own list, and the call refuses what that 
 | 404 | `space.not_found` | the account has no such space |
 | 409 | `space.deleted` | the parent is deleted |
 | 409 | `space.not_accepted` | a join or an invite to the parent is not accepted yet |
-| 409 | `space.parent_invalid` | the tech space, a one-to-one space, a derived space or a child |
+| 409 | `space.parent_invalid` | the parent is not an organization: a space of type `any.space` or of any other type, a child, a derived space, a one-to-one space, the tech space |
+
+```json
+{"error": {"code": "space.parent_invalid", "message": "the parent is not an organization: only a space of type any.organization has child spaces", "details": {"parentSpaceId": "bafyrei…"}}}
+```
+
+A parent whose row has no `type` yet, a joined space this account has opened on no device, is not judged by the create: the coordinator refuses the child when it is first pushed, with `refusal: "parent_invalid"`.
 
 The caller's role in the parent is not checked by the create. Read it from the parent's `SpaceInfo.ownRole` and offer the action to a `writer`, an `admin` or the `owner`.
 
 ## A refused child
 
-The network accepts a child when it is first pushed. The coordinator then checks that the parent exists and is a regular top-level space, that the creator is a writer or above in it at that moment, and that the parent's owner is below its child-spaces limit. A child it refuses stays a usable local space: `status` is `active`, reads and writes work, and no node holds it. `SpaceInfo.refusal` names the failed check.
+The network accepts a child when it is first pushed. The coordinator then checks that the parent exists and is an organization, that the creator is a writer or above in it at that moment, and that the parent's owner is below its child-spaces limit. A child it refuses stays a usable local space: `status` is `active`, reads and writes work, and no node holds it. `SpaceInfo.refusal` names the failed check.
 
 | `refusal` | Cause | What ends it | What to offer |
 |-----------|-------|--------------|---------------|
 | `parent_permission_denied` | the account is below writer in the parent | a role of writer or above in the parent | ask an admin of the parent for the role, then retry |
 | `child_limit_reached` | the parent's owner is at its child-spaces limit | a higher limit of that account, or fewer children | tell the parent's owner; retry once they have room |
 | `parent_not_available` | the parent does not exist on the network or is deleted | nothing, for a deleted parent | delete the child, or keep it as a local space |
-| `parent_invalid` | the parent is not a regular top-level space | nothing | delete the child, or keep it as a local space |
+| `parent_invalid` | the parent is not an organization | nothing | delete the child, or keep it as a local space |
 
 `refusal` is omitted when nothing is refused. It is synced: every device of the account reads it, also one that holds no copy of the child, and the raw rows of the [space-list stream](../realtime/space-list.html) deliver it being set and cleared.
 
@@ -103,7 +137,7 @@ any space retry-push $CHILD
 | `409 space.not_stored` | this device has no copy of the space; a device that holds it retries the push |
 | `400 request.invalid_field` | the id is not a space id |
 
-A refused child is shared with nobody: no node holds it. On it `POST …/invites`, `POST …/guest-key` and `POST …/acl/add` answer at once with the code of the recorded refusal, the one `retry-push` answers. `GET …/children` on it answers the same code.
+A refused child is shared with nobody: no node holds it. On it `POST …/invites` and `POST …/acl/add` answer at once with the code of the recorded refusal, the one `retry-push` answers. `GET …/children` on it answers the same code. An add at `guest` answers `409 acl.no_guest_role` instead: that refusal comes first.
 
 A refused child that is no longer wanted is removed with `DELETE /v1/spaces/:spaceId`.
 
@@ -122,7 +156,26 @@ A child's own admins and owner manage its members with the ordinary [ACL](acl.ht
 | `POST /v1/spaces/join` | this account is not a member of the parent; no row is written |
 | `POST …/acl/ownership` | the new owner is not a member of the parent, whoever hands the child over |
 
-A guest key is the exception. `POST /v1/spaces/:spaceId/guest-key` works on a child as on any space, and its token gives read-only access to holders outside the parent.
+The same calls answer `409 space.parent_not_available` while the coordinator cannot read the ACL of the parent, which passes by itself.
+
+## No guest role
+
+An organization and its children have no guest role: no account is a guest in one, and none has a [guest key](invites.html). A read-only member is a `reader`. In both types these calls answer `409`:
+
+```json
+{"error": {"code": "acl.no_guest_role", "message": "an organization and its child spaces have no guest role and no guest key: a read-only member is a reader", "details": {"spaceId": "bafyrei…"}}}
+```
+
+| Call | Refused |
+|------|---------|
+| `POST …/guest-key`, `DELETE …/guest-key` | always |
+| `POST …/acl/add` | when an account is added with `guest`; nobody of the batch is added |
+| `POST …/acl/permissions` | when a change is to `guest`; no change of the batch is made |
+| `POST …/acl/accept` | with `permission: "guest"` |
+
+The type of the space decides (`SpaceInfo.type`), for any caller and before its role is checked, and nothing is sent to the network. A space of type `any.space` keeps its guest key and its guests.
+
+The coordinator refuses an ACL record that makes an account a guest in the two types, so a device on a release that does not know them is refused by the network, and answers that refusal without this code.
 
 ## Listing the children of a parent
 
@@ -138,6 +191,8 @@ any space children $PARENT
 ```
 
 The coordinator answers an admin or the owner of the parent with every child, the ones the account is no member of included. `status` is `active`, or `deletion_pending` when the child's deletion was requested and is not finished: a deleted child is listed that way until the coordinator has finished deleting it, and not at all after that. The list is read on every call and kept nowhere: no row is created for a listed child, and the call needs the network.
+
+The type of the space is not checked. An admin or the owner of a space that is not an organization gets `{"children": []}`, and any other member `403 space.parent_permission_denied`: an empty list does not say the space can have children, `type` in its `SpaceInfo` does.
 
 | Status | Code | When |
 |--------|------|------|
@@ -193,14 +248,16 @@ The child's own owner is accepted on the last two whatever its role in the paren
 
 The rows carry no `name` and no `iconCid`: an ACL names accounts by identity, and a profile is not readable without the child's keys. Resolve a name through the parent's own [roster](members-and-roles.html) or the [identities directory](../auth/identities.html).
 
+An account added with [`POST …/acl/add`](acl.html) is an `active` member in the ACL at once, whether it accepts the invite or declines it: `POST …/invite/decline` changes no ACL. This read does not tell the two apart, and `acl/ownership` hands the child to either; an owner that has not accepted holds the child on no device until `POST /v1/spaces/:spaceId/invite/accept`.
+
 | Status | Code | When |
 |--------|------|------|
 | 503 | `network.unreachable` | no node or coordinator could be reached; nothing changed |
 | 403 | `space.parent_permission_denied` | the network does not accept the call from this account (the table above), or an admin of the parent removes an account that is an admin or the owner of the parent |
 | 409 | `acl.not_parent_member` | the new owner is no member of the parent |
 | 404 | `members.not_found` | an identity is no member of the child: one of the removed, or the new owner |
-| 403 | `acl.forbidden` | the child's ACL forbids the record: the child's owner or the caller among the removed identities; a new owner who is the owner already or a guest identity |
-| 409 | `space.not_child` | the space has no parent: the account's list shows it for a space the account holds; `DELETE` also answers it for an active regular top-level space of another account |
+| 403 | `acl.forbidden` | the child's ACL forbids the record: the child's owner or the caller among the removed identities; a new owner who is the owner already |
+| 409 | `space.not_child` | the space has no parent: the account's list shows it for a space the account holds; `DELETE` also answers it for an active top-level space of another account, an organization included |
 | 409 | `space.parent_not_available` | the coordinator cannot read the ACL of the child's parent |
 | 404 | `space.not_found` | the coordinator does not know the space |
 | 409 | `space.deleted` | the coordinator holds the space as deleted or in deletion; `DELETE` of such a child is done and answers `204` |
@@ -209,7 +266,7 @@ The rows carry no `name` and no `iconCid`: an ACL names accounts by identity, an
 
 `acl/remove` and `acl/ownership` fail when the child's ACL changes while they run, and are safe to repeat.
 
-A regular top-level space of another account has no parent to refuse the caller for. On it `acl/remove` and `acl/ownership` answer `403 acl.forbidden`, or `404 members.not_found` for an identity that is no account of that space, and not `space.parent_permission_denied`; `GET …/members` lists its accounts.
+A top-level space of another account, an organization included, has no parent to refuse the caller for. On it `acl/remove` and `acl/ownership` answer `403 acl.forbidden`, or `404 members.not_found` for an identity that is no account of that space, and not `space.parent_permission_denied`; `GET …/members` lists its accounts. That read answers for any space the account does not hold, so whoever knows the id of a space reads the identities and roles of its accounts, and no names.
 
 An admin or the owner of the child removes members with the child's own [ACL](acl.html) route instead: `POST /v1/spaces/:spaceId/acl/remove` changes the read key in the same record. The child's owner transfers the ownership with `POST /v1/spaces/:spaceId/acl/ownership` as well.
 
@@ -241,6 +298,8 @@ A device holds a child once it has loaded it: the device that created it or acce
 
 When no key-holder is left in a child, the rotation cannot happen: the child has no device of an admin or the owner that holds it, and `rotationPending` stays `true`. Deleting the child with `DELETE /v1/children/:childId` is the only lever.
 
+After a removal the network checks a change against the ACL record the change names. A change of the removed member that names a record from before the removal is valid, and the other members read it, as in any space. `any` names the head of its own copy of the ACL, so the removed member's device stops writing once that copy shows the removal.
+
 > **Why it matters.** Removal by an ordinary admin rotates the key in the same record, because that admin holds it. The parent's admin does not, and the design keeps it that way: the removal takes effect on the ACL at once, and the cryptographic cut follows from a device that is allowed to read the space.
 
 ## Deleting
@@ -252,7 +311,7 @@ When no key-holder is left in a child, the rotation cannot happen: the child has
 | `DELETE /v1/spaces/:spaceId` | for the child's owner: deletes it on the network; for any other member, the parent's owner included: removes it from the account alone |
 | `DELETE /v1/children/:childId` | for the parent's owner and for the child's own owner: deletes it on the network for everyone; the coordinator answers before the reply, and a copy in the account's own list then reads `deleted` |
 
-A parent is deleted after its children, and a deleted child is one until the coordinator has finished deleting it. So delete the children, and delete the parent once the list is empty:
+An organization is deleted after its children, and a deleted child is one until the coordinator has finished deleting it. So delete the children, and delete the parent once the list is empty:
 
 ```bash
 curl -s http://127.0.0.1:2046/v1/spaces/$PARENT/children          # list them
@@ -272,9 +331,13 @@ That answer is given before anything is written. A child in the account's own sp
 
 With no coordinator in reach the delete stays [offline-first](../database/spaces.html): the call answers `204` and the network delete is sent later. If the coordinator then refuses it for children, the deleted row reads `refusal: "has_children"`. The children routes work on such a parent. The server sends the waiting delete again by itself, on every pass of its reconciler and after each accepted `DELETE /v1/children/:childId`; it goes through once the last child is finally deleted, and `refusal` clears.
 
+A refused delete changes nothing on the network: the parent stays an active space there. Only an account that is a writer or above in the parent and holds it as an active space creates children under it, and each new child is one more the delete waits for.
+
+A device on a release that does not know the two types deletes an organization it owns like any space: the row reads `deleted` at once, and the network refuses the delete until the children are gone.
+
 ## Limits
 
-The number of child spaces is a limit of the account that owns the parent. It is a limit of its own, apart from the shared-spaces limit, and it counts the children of all the spaces that account owns, whoever created them. The owner reads it with [`GET /v1/account/limits`](../auth/profile.html):
+The number of child spaces is a limit of the account that owns the parent. It is a limit of its own, apart from the shared-spaces limit, and it counts the children of all the organizations that account owns, whoever created them. The owner reads it with [`GET /v1/account/limits`](../auth/profile.html):
 
 ```json
 { "childSpaces": { "limit": 10, "fetchedAt": "2026-08-20T17:06:40Z" } }
@@ -298,5 +361,5 @@ A child created past it is refused with `refusal: "child_limit_reached"`. The me
 ## Related
 
 - [Spaces](../database/spaces.html) — creating, listing and deleting spaces, the `SpaceInfo` shape.
-- [ACL](acl.html), [Invites](invites.html), [Members and roles](members-and-roles.html) — the routes a child's own members use.
-- [Space list](../realtime/space-list.html) — `parentSpaceId` and `refusal` on the raw rows.
+- [ACL](acl.html), [Invites](invites.html), [Members and roles](members-and-roles.html) — the routes the members of an organization and of a child use.
+- [Space list](../realtime/space-list.html) — `type`, `parentSpaceId` and `refusal` on the raw rows.

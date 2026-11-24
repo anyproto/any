@@ -98,6 +98,8 @@ any acl add <spaceId> <identity>[,<identity>...] <permission>
 
 In a [child space](child-spaces.html) only members of the parent can be added: an account outside it refuses the whole batch with `409 acl.not_parent_member`, and so do an accept of a joiner who left the parent and an ownership change to a new owner who is not a member of the parent.
 
+An organization and its child spaces have [no guest role](child-spaces.html#no-guest-role): an add, a permission change or an accept that names `guest` there answers `409 acl.no_guest_role`, for the whole batch.
+
 The whole batch lands in one ACL record, and every added account is notified through the coordinator inbox (durable, retried). On their side the space shows up as a **synced** `invite_pending` row in the space list, carrying the sender-supplied name hint. They are already full ACL members; the pending state only governs whether their device materializes the space — nothing is downloaded until accepted.
 
 ```

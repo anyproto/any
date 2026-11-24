@@ -109,12 +109,12 @@ Panics are converted to `500 internal` with a generic message.
 | `space.already_member` | 409 | a guest token for a space this account already tracks as a member |
 | `space.read_only` | 403 | a guest or reader tried to write |
 | `space.unsupported` | 405 | the surface is not available on the tech space (object and type lifecycle, members, files, chat, editor, history, search, shared-dataset reads, metadata, settings, non-bundle writes, catalog setup) |
-| `space.has_children` | 409 | `DELETE` of a space that still has [child spaces](../collaboration/child-spaces.html); nothing is deleted |
-| `space.parent_not_available` | 409 | the parent of a child space does not exist on the network or is deleted; also the account's own parent while no node holds it yet, and `GET …/children` of a parent whose ACL has not reached the network yet |
-| `space.parent_invalid` | 409 | the space named as a parent has no children: a child, a derived, a one-to-one or the tech space |
+| `space.has_children` | 409 | `DELETE` of an organization that still has [child spaces](../collaboration/child-spaces.html); nothing is deleted |
+| `space.parent_not_available` | 409 | the parent of a child space does not exist on the network or is deleted; also the account's own parent while no node holds it yet, and `GET …/children` of a parent whose ACL has not reached the network yet; add, accept, ownership and join on a child while the coordinator cannot read the ACL of its parent |
+| `space.parent_invalid` | 409 | the space named as a parent is not an organization: a space of type `any.space` or of any other type, a child, a derived, a one-to-one or the tech space |
 | `space.parent_permission_denied` | 403 | the network does not accept the operation on the child from this account: its role in the parent is too low, and on an ownership change or a delete it is not the child's own owner either; also an admin of the parent removing an account that is an admin or the owner of the parent |
 | `space.child_limit_reached` | 409 | the owner of the parent space is at its child-spaces limit |
-| `space.not_child` | 409 | a child-space operation on a space the account's list shows has no parent; `DELETE /v1/children/:childId` also on an active regular top-level space of another account |
+| `space.not_child` | 409 | a child-space operation on a space the account's list shows has no parent; `DELETE /v1/children/:childId` also on an active top-level space of another account, an organization included |
 | `space.not_stored` | 409 | `POST …/retry-push` on a device that holds no copy of the space |
 | `space.not_pushed` | 409 | invite create, guest key or direct add by the owner of a space the coordinator does not know yet: the first push of the account's own space has not landed within the call's 35-second wait; repeat the call. The CLI's default request timeout of 30 seconds ends the call first, with no code: a client that needs the code gives these calls 60 seconds (`--timeout 60s`). Also `GET …/children`, at once, for a parent the account created a moment ago; a refused child answers the code of its refusal |
 | `members.not_found` | 404 | unknown member identity in this space, on a read or on an ACL removal, permission change or ownership change |
@@ -122,6 +122,7 @@ Panics are converted to `500 internal` with a generic message.
 | `acl.limit_reached` | 409 | the coordinator refuses for the space owner's plan: shared spaces on the first share of a space (invite create, guest key, direct add), or the space's readers or writers (accept, change permissions, direct add, guest key) |
 | `acl.record_not_found` | 404 | the ACL record named (a join request) does not exist |
 | `acl.not_parent_member` | 409 | only a member of the parent space becomes a member of a child space: a direct add, an accept or a join that would admit an account outside the parent |
+| `acl.no_guest_role` | 409 | an organization and its [child spaces](../collaboration/child-spaces.html#no-guest-role) have no guest role: the guest key routes always, and a direct add, a permission change or an accept that names `guest`; for any caller, with nothing sent |
 | `invite.invalid` | 400 | invite token malformed or not decodable as an invite |
 | `invite.not_found` | 404 | unknown invite record |
 | `invite.duplicate` | 409 | this device's copy of the ACL holds the space's invite: a space holds one, and a mint replaces nothing. A mint fails when another invite reaches the ACL while it runs, or has not reached this device yet, and is safe to repeat: it then answers this code |

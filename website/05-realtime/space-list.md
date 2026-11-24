@@ -41,13 +41,14 @@ Fields worth knowing on a raw row:
 |---|---|
 | `remoteStatus` | the synced, account-wide lifecycle: absent or `active`, `joining` / `joinEnded`, `invitePending` / `inviteDeclined`, `deleted` (a sticky tombstone), … |
 | `localStatus` | the device-local lifecycle: absent means active; `oneToOnePending` marks an incoming one-to-one request |
-| `spaceType` | `any.space`, `any.onetoone`, … |
+| `type` | the type in the space header, the field that tells an [organization](../collaboration/child-spaces.html) or a child space: `any.space`, `any.organization`, `any.organization.space`, `any.onetoone`; absent on a row whose join or invite is not accepted yet, so a filter on `type` leaves such a row out. A filter on `any.space` matches neither an organization nor a child space, so a list of all three names them: `{"type": {"$in": ["any.space", "any.organization", "any.organization.space"]}}` |
+| `spaceType` | the app-level tag: the header type on a created space, `any.onetoone` on a direct space, a tag its application chooses on a derived space |
 | `createdAt` | added-to-account instant, `{"$date": "…"}`; absent when unknown. Sort `["-createdAt", "-id"]`, range-filter with `{"$gte": {"$date": "…"}}` |
 | `ownRole` | your own role, mirrored from ACL state: `owner` / `admin` / `writer` / `reader` / `guest` / `none`; absent until mirrored on this device |
 | `settings` | the account-private settings object written via `PATCH /v1/spaces/:id/settings` (e.g. `notifyMode`) |
 | `push` | `{spaceKey, encKey, encKeyId}` push key material; absent until the mirror has run for the space |
 | `derived` | set on well-known [derived spaces](../collaboration/derived-spaces.html), which cannot be deleted |
-| `parentSpaceId` | the parent of a [child space](../collaboration/child-spaces.html); absent on a top-level space |
+| `parentSpaceId` | the organization a [child space](../collaboration/child-spaces.html) was created under; absent on a top-level space |
 | `refusal` | what the coordinator refused for the space, in the `SpaceInfo.refusal` strings; absent or `none` when nothing is refused |
 
 `GET /v1/spaces` folds `remoteStatus` and `localStatus` into the one `status` string of `SpaceInfo` (`active`, `joining`, `one_to_one_pending`, `deleted`, …); on raw rows, filter on the two fields themselves.

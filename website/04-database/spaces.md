@@ -15,10 +15,11 @@ curl -X POST http://127.0.0.1:2046/v1/spaces \
   -d '{"name": "Project Phoenix", "description": "shared notes + chat"}'
 ```
 
-The body is `{name?, description?, iconCid?, spaceType?, parentSpaceId?}`. The reply is a `201` with the space's `SpaceInfo`. `spaceType` is pinned at create and cannot be patched later. With `parentSpaceId` the space is created as a [child](../collaboration/child-spaces.html) of that space.
+The body is `{name?, description?, iconCid?, spaceType?, parentSpaceId?}`. The reply is a `201` with the space's `SpaceInfo`. `spaceType` names the type of the space: `any.space`, also when empty, or `any.organization`, a space that can have [child spaces](../collaboration/child-spaces.html) and has no guest role. The type is in the space's immutable header and cannot be patched later. With `parentSpaceId` the space is created as a child of that organization, of type `any.organization.space`. Any other `spaceType` is `400 request.invalid_field`.
 
 ```bash
 any space create --name "Project Phoenix" --description "shared notes + chat"
+any space create --name Acme --type any.organization
 ```
 
 ## The `SpaceInfo` shape
@@ -28,7 +29,8 @@ Every single-space response (`POST /v1/spaces`, `GET /v1/spaces/:spaceId`) retur
 | Field | Meaning |
 |-------|---------|
 | `id` | The space id (base58). |
-| `spaceType` | App-level classification: `any.space` for a created space, `any.onetoone` for a direct space. |
+| `type` | The type in the space header, the field that tells an organization or a child space: `any.space`, `any.organization`, `any.organization.space` for a child of one, `any.onetoone` for a direct space. A filter on `any.space` matches neither an organization nor a child space. |
+| `spaceType` | App-level classification: the header type for a created space, `any.onetoone` for a direct space, a tag its application chooses for a derived space. |
 | `author` | The owner's account identity, resolved from the ACL (omitted when not loadable). |
 | `name`, `description`, `iconCid` | Member-replicated metadata. |
 | `status` | `active`, `deleted`, `joining`, `one_to_one_pending`, `one_to_one_declined`, `invite_pending`, `invite_declined`, `guest_revoked`. |
@@ -111,13 +113,13 @@ curl -X DELETE http://127.0.0.1:2046/v1/spaces/$SPACE   # → 204
 any space delete $SPACE --yes
 ```
 
-Deletion is offline-first. The local half is the same for every space: a synced `deleted` tombstone is written and all local storage for the space is dropped (disk reclaimed even offline). The network half, the signed delete, is the owner's; a member deleting a space they joined offloads it locally. For a regular top-level space the account owns, the signed delete is sent on the call path and the call waits for the coordinator at most five seconds; with no answer the call still returns `204`. A background reconciler sends a delete the call did not.
+Deletion is offline-first. The local half is the same for every space: a synced `deleted` tombstone is written and all local storage for the space is dropped (disk reclaimed even offline). The network half, the signed delete, is the owner's; a member deleting a space they joined offloads it locally. For an organization the account owns, the signed delete is sent on the call path and the call waits for the coordinator at most five seconds; with no answer the call still returns `204`. A background reconciler sends a delete the call did not.
 
-The row stays in the account's list with `status: "deleted"` as a sticky tombstone, which is why the default list filters to active. `GET /v1/spaces/:spaceId` on it still answers `200` with that status, while every write and space-scoped read is `409 space.deleted` — branch on `status`, not on the status code. Derived spaces refuse deletion with `409 space.derived_undeletable`; an unknown id is `404 space.not_found`. A space that still has [child spaces](../collaboration/child-spaces.html#deleting), the ones in deletion included, answers `409 space.has_children` and nothing is changed: delete the children, then the space once `GET /v1/spaces/:spaceId/children` lists none. On a `joining` row the call withdraws the join request instead: the row reads `deleted` and stays re-joinable.
+The row stays in the account's list with `status: "deleted"` as a sticky tombstone, which is why the default list filters to active. `GET /v1/spaces/:spaceId` on it still answers `200` with that status, while every write and space-scoped read is `409 space.deleted` — branch on `status`, not on the status code. Derived spaces refuse deletion with `409 space.derived_undeletable`; an unknown id is `404 space.not_found`. An organization that still has [child spaces](../collaboration/child-spaces.html#deleting), the ones in deletion included, answers `409 space.has_children` and nothing is changed: delete the children, then the organization once `GET /v1/spaces/:spaceId/children` lists none. On a `joining` row the call withdraws the join request instead: the row reads `deleted` and stays re-joinable.
 
 ## Related
 
 - [Members and roles](../collaboration/members-and-roles.html), [Invites](../collaboration/invites.html) — sharing a space.
 - [One-to-one](../collaboration/one-to-one.html) — direct spaces derived from two identities.
-- [Child spaces](../collaboration/child-spaces.html) — spaces created under a parent space.
+- [Child spaces](../collaboration/child-spaces.html) — organizations and the spaces created under them.
 - [Derived spaces](../collaboration/derived-spaces.html) — well-known per-account spaces.

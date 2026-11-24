@@ -135,7 +135,7 @@ peer id can never re-register. Election contract and decision matrix:
 ### Spaces
 
 ```
-any space create [--name ...] [--description ...] [--icon-cid CID] [--parent <spaceId>]   # POST /v1/spaces
+any space create [--name ...] [--description ...] [--icon-cid CID] [--type T] [--parent <spaceId>]   # POST /v1/spaces
 any space get    <spaceId>
 any space update <spaceId> [--name ...] [--description ...] [--icon-cid CID]   # PATCH
 any space settings <spaceId> [--set k=v]... [--set-bool k=true|false]... [--set-num k=N]... [--unset k]...
@@ -227,19 +227,27 @@ reclaims local storage (immediately in the normal case; a partial sweep
 failure keeps the storage file so the next boot retries), then drives
 the signed coordinator delete in the background. The row stays in the
 space list with `status:"deleted"` (sticky tombstone), so a subsequent
-`any space query` still shows it. The delete of a top-level space the
+`any space query` still shows it. The delete of an organization the
 account owns is first sent to the coordinator, which is waited for at
 most five seconds: while a child space is left it fails with
 `space.has_children` and nothing is changed. Delete the children with
-`any child delete`, then the space once `any space children` lists
-none.
+`any child delete`, then the organization once `any space children`
+lists none.
 
 `any space create` wraps `POST /v1/spaces` and prints the new space's
-`SpaceInfo`. With `--parent` the space is created as a child of that
-space (`Service.CreateChild`; `docs/03-api.md` § Child spaces): the
-account is a writer, an admin or the owner of the parent. Creation
-needs no network; the network accepts a child when it is first pushed,
-and `refusal` on the row names a check it failed.
+`SpaceInfo`. `--type` is the request's `spaceType`: `any.space`, the
+default, or `any.organization`, a space that can have child spaces and
+has no guest role. With `--parent` the space is created as a child of
+that organization (`Service.CreateChild`; `docs/03-api.md` § Child
+spaces): the account is a writer, an admin or the owner of the parent,
+and `--type` is `any.organization.space` or not given. Creation needs
+no network; the network accepts a child when it is first pushed, and
+`refusal` on the row names a check it failed.
+
+```
+any space create --name Acme --type any.organization
+any space create --name Design --parent <organizationId>
+```
 
 `any space retry-push` wraps `POST /v1/spaces/:id/retry-push`
 (`Service.RetryPush`) for a child whose `refusal` is set. It prints
@@ -758,6 +766,11 @@ any acl stop-sharing <spaceId>
 `--description` / `--icon-cid` ride the join record. `acl accept`
 grants `writer` unless `--permission` says otherwise; `acl ownership`
 leaves the old owner `admin` unless `--old-owner-perm` says otherwise.
+
+An organization and its child spaces have no guest role: there
+`invite guest-key` and `invite guest-key-revoke` fail with
+`acl.no_guest_role`, and so do `acl accept`, `acl grant` and `acl add`
+at `guest`.
 
 `any acl add` adds accounts **by identity** — the whole comma-separated
 batch lands in one ACL record, and each added account is notified through

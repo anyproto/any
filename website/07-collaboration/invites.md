@@ -41,7 +41,7 @@ The mint, the guest key and a direct add need the space on the network. For a sp
 
 The space is the account's own and reaches the network by itself, so repeat the call. The wait outlasts the CLI's default request timeout of 30 seconds, which ends the call first with a timeout and no code. A client that needs the code gives these calls 60 seconds: `--timeout 60s` on the CLI (`any invite create <spaceId> --timeout 60s`), a request timeout of 60 seconds in an HTTP client.
 
-A [child space](child-spaces.html#a-refused-child) the coordinator refused is not waited for: the three calls answer the code of its refusal.
+A [child space](child-spaces.html#a-refused-child) the coordinator refused is not waited for: the mint and a direct add answer the code of its refusal.
 
 ```bash
 any invite create <spaceId>
@@ -93,6 +93,8 @@ curl -s -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/guest-key
 ```
 
 One guest identity per space, idempotent — repeated calls return the same token; owner only. Anyone holding the token joins through the regular `POST /v1/spaces/join`; the guest kind is encoded in the token and auto-detected. No join request, no approval, no per-user ACL entry: the join answers `201 SpaceInfo` (`202` while the space still loads in the background), the space loads read-only with `ownRole: "guest"`, and writes return `403 space.read_only`. An account that is already a member of the space gets `409 space.already_member`.
+
+An organization and its [child spaces](child-spaces.html#no-guest-role) have no guest key: there the mint and the revoke answer `409 acl.no_guest_role`.
 
 ```bash
 any invite guest-key        <spaceId>

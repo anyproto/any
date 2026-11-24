@@ -1123,16 +1123,32 @@ Call patterns:
 A child space is a full space created under a parent: its own members,
 its own read key. Membership in the parent gives no access to it; the
 parent's owner and admins govern it, and read it only as members of it.
-Full contract: `03-api.md` § Child spaces.
+The parent is an **organization**: a space of type `any.organization`,
+created as one, and otherwise a space like any other. Full contract:
+`03-api.md` § Child spaces.
 
-**Create** with the parent's id. Offer the action when the parent's
-`SpaceInfo.ownRole` is `writer`, `admin` or `owner`: the call itself is
-local and does not check the role.
+**Create** the organization with its type, and a child with the
+parent's id. Offer the child when the row's `type` is
+`any.organization` and its `SpaceInfo.ownRole` is `writer`, `admin` or
+`owner`: the call itself is local and does not check the role.
 
 ```json
 POST /v1/spaces
-{ "name": "Design", "parentSpaceId": "<parent id>" }   // → 201 SpaceInfo, parentSpaceId set
+{ "name": "Acme", "spaceType": "any.organization" }    // → 201 SpaceInfo, type any.organization
+
+POST /v1/spaces
+{ "name": "Design", "parentSpaceId": "<parent id>" }   // → 201 SpaceInfo, type any.organization.space, parentSpaceId set
 ```
+
+A space of another type never becomes an organization, and
+`409 space.parent_invalid` answers a parent that is not one. Tell an
+organization and a child by `type`, not by `spaceType`, which on a
+derived space is a tag its application chooses. A space list filtered
+on `type: "any.space"` shows neither organizations nor their children:
+name the three types in the filter,
+`{"type": {"$in": ["any.space", "any.organization", "any.organization.space"]}}`.
+A device on a release that does not know the two types lists and opens
+them as ordinary spaces and creates neither.
 
 **List** from two sides. A member reads the children it belongs to off
 its own space list, live, by `parentSpaceId`:
@@ -1170,13 +1186,19 @@ and the row's `refusal` clears; a refusal answers the code of the
 failed check, and the row holds the same answer. The server also asks
 again by itself, so the button is for "the cause is gone, ask now", not
 a requirement. `503 network.unreachable` changed nothing. A refused
-child is on no node, so sharing it (invite, guest key, direct add)
-answers the refusal's code at once: clear the refusal first.
+child is on no node, so sharing it (invite, direct add) answers the
+refusal's code at once: clear the refusal first.
 
 **Members.** Only a member of the parent becomes a member of a child. A
 direct add, an accept or a join that would admit an outsider answers
-`409 acl.not_parent_member`: the account joins the parent first. A
-guest key is the way to give read-only access outside the parent.
+`409 acl.not_parent_member`: the account joins the parent first.
+
+An organization and its children have no guest role: on a space whose
+`type` is `any.organization` or `any.organization.space` the guest key
+routes, and a direct add, a permission change and an accept at `guest`,
+answer `409 acl.no_guest_role`. Offer neither the guest key nor the
+`guest` permission there, and give read-only access with the `reader`
+role.
 
 **Govern from the parent** by the child's id, under `/v1/children`. The
 caller need not be a member of the child; each call needs the network.
@@ -1203,6 +1225,13 @@ identities to remove and the new owner (an `active` member) from this
 read. The two ACL routes fail when the child's ACL changes while they
 run, and are safe to repeat.
 
+The read does not tell a member who accepted the direct-add invite from
+one who declined it: both are `active`, and the hand-over to either
+goes through. An owner that has not accepted holds the child on no
+device until it accepts the invite. The read answers for any space the
+account does not hold, a top-level one included: whoever knows the id
+of a space reads the identities and roles of its accounts.
+
 A removal from the parent side does not change the read key. The child
 shows `rotationPending: true` on `GET /v1/spaces/:childId/members` to
 its members until a device of an admin or the owner of the child
@@ -1212,7 +1241,10 @@ child's admins; no call ends it. The parent side reads the same
 flag on `GET /v1/children/:childId/members`: read it again after a
 removal to see whether the child rotated. A child that stays pending
 has no key-holder left to change the key, and deleting the child is the
-only lever.
+only lever. The network accepts a change of the removed member that
+names an ACL record from before the removal, and the child's members
+read it; that member's own device stops writing once its copy of the
+ACL shows the removal.
 
 **Delete.** `DELETE /v1/spaces/:spaceId` on a child removes the
 account's own copy, and deletes the child on the network only for its
@@ -1234,7 +1266,10 @@ it when its deletion is final. Until then the parent's delete answers
 `409 space.has_children` and changes nothing: wait for the empty list
 instead of retrying the delete. A deleted parent whose row reads
 `refusal: "has_children"` was deleted offline and waits for the same
-thing; the server sends its delete again by itself.
+thing; the server sends its delete again by itself. While a delete
+waits, the parent is an active space on the network: only an account
+that is a writer or above in it and holds it as an active space creates
+children under it, and each new child is one more to delete first.
 
 ## See also
 

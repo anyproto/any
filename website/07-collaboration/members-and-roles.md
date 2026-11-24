@@ -62,7 +62,7 @@ any members subscribe <spaceId>
 |-------------|---------|
 | `none` | no access |
 | `reader` | read only |
-| `guest` | read only through the space's shared public guest key |
+| `guest` | read only through the space's shared public guest key; no account holds it in an organization or a [child space](child-spaces.html#no-guest-role) |
 | `writer` | read and write content |
 | `admin` | writer plus member management |
 | `owner` | everything, including ownership transfer and stop-sharing |

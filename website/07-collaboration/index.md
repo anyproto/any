@@ -34,7 +34,7 @@ me ── one-to-one {otherIdentity} ──► both derive the same space, both 
 | Invite | a shareable token that lets someone request to join, or a public read-only guest key | [Invites](invites.html) |
 | ACL operation | owner/admin actions: accept, decline, change permissions, remove, add by identity, transfer ownership, stop sharing | [ACL](acl.html) |
 | One-to-one space | a two-identity space derived from both account keys — no invite, no owner | [One-to-one](one-to-one.html) |
-| Child space | a space created under a parent space: its own members and read key, governed by the parent's owner and admins, who read it only as members of it | [Child spaces](child-spaces.html) |
+| Child space | a space created under a parent space, an organization: its own members and read key, governed by the parent's owner and admins, who read it only as members of it | [Child spaces](child-spaces.html) |
 | Derived space | a well-known per-account space every device resolves to the same id | [Derived spaces](derived-spaces.html) |
 | Bundle | one root object per install registered in the space, so members converge on one chat, one setup; the server's usecase catalog installs the well-known apps | [Bundles](bundles.html) |
 
@@ -65,7 +65,7 @@ Two themes recur across the section:
 <a href="invites.html"><strong>Invites</strong><span>Mint, list and revoke invite tokens; request-to-join; public guest keys.</span></a>
 <a href="acl.html"><strong>ACL</strong><span>Accept, decline, change permissions, remove, add by identity, transfer ownership, stop sharing.</span></a>
 <a href="one-to-one.html"><strong>One-to-one</strong><span>Direct spaces derived from two identities, with the pending/declined state machine.</span></a>
-<a href="child-spaces.html"><strong>Child spaces</strong><span>Spaces under a parent: who can do what, refusal reasons, governing from the parent, rotation pending, limits.</span></a>
+<a href="child-spaces.html"><strong>Child spaces</strong><span>Organizations and the spaces under them: the two types, who can do what, refusal reasons, governing from the parent, no guest role, rotation pending, limits.</span></a>
 <a href="derived-spaces.html"><strong>Derived spaces</strong><span>Well-known per-account spaces every device converges on; permanent by design.</span></a>
 <a href="bundles.html"><strong>Bundles</strong><span>Adopt-or-install roots, derived roots, losers and resolve, the usecase catalog and the general chat.</span></a>
 </div>

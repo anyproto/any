@@ -73,7 +73,7 @@ any devices subscribe [same flags]
 ## Spaces
 
 ```
-any space create   [--name N] [--description D] [--icon-cid CID] [--parent <spaceId>]   # --parent: a child of that space
+any space create   [--name N] [--description D] [--icon-cid CID] [--type T] [--parent <spaceId>]   # --type any.organization: an organization; --parent: a child of that organization
 any space get      <spaceId>
 any space update   <spaceId> [--name N] [--description D] [--icon-cid CID]   # unset flag = keep, --name='' = clear
 any space settings <spaceId> [--set k=v]... [--set-bool k=true|false]... [--set-num k=N]... [--unset k]...
@@ -358,7 +358,7 @@ any child ownership <childId> --new-owner X --old-owner-perm P      # parent's o
 any child delete    <childId> --yes                                 # parent's owner or the child's own; for every member
 ```
 
-Permissions are `none`, `reader`, `guest`, `writer`, `admin`, `owner`. `any acl add` adds accounts by identity in one ACL record; each added account sees an `invite_pending` row and resolves it with `any invite accept` / `decline`. `--name` / `--description` apply to a single-identity add only. The `any child` commands take the child's id alone and reach it from outside — see [Child spaces](../collaboration/child-spaces.html) for who the network accepts on each.
+Permissions are `none`, `reader`, `guest`, `writer`, `admin`, `owner`. An organization and its child spaces have no `guest` role and no guest key: the commands that name either fail there with `acl.no_guest_role`. `any acl add` adds accounts by identity in one ACL record; each added account sees an `invite_pending` row and resolves it with `any invite accept` / `decline`. `--name` / `--description` apply to a single-identity add only. The `any child` commands take the child's id alone and reach it from outside — see [Child spaces](../collaboration/child-spaces.html) for who the network accepts on each.
 
 ## Sync status, events, processes, push, debug
 
