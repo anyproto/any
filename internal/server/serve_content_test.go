@@ -14,14 +14,26 @@ import (
 
 var errHole = errors.New("block not available")
 
-// holedBody is a body whose bytes from hole on cannot be read, like a
-// partly fetched file whose only holder is gone. reads counts Read
-// calls.
+// holedBody is a body whose bytes in [hole, holeEnd) cannot be read,
+// like a partly fetched file whose only holder is gone; holeEnd zero
+// means the hole runs to the end. With seekReads a seek into the hole
+// fails too, as a reader that positions itself by reading does. reads
+// counts Read calls.
 type holedBody struct {
-	data  []byte
-	hole  int64
-	pos   int64
-	reads int
+	data      []byte
+	hole      int64
+	holeEnd   int64
+	seekReads bool
+	pos       int64
+	reads     int
+}
+
+func (b *holedBody) inHole(pos int64) bool {
+	end := b.holeEnd
+	if end == 0 {
+		end = int64(len(b.data))
+	}
+	return pos >= b.hole && pos < end
 }
 
 func (b *holedBody) Read(p []byte) (int, error) {
@@ -29,10 +41,14 @@ func (b *holedBody) Read(p []byte) (int, error) {
 	if b.pos >= int64(len(b.data)) {
 		return 0, io.EOF
 	}
-	if b.pos >= b.hole {
+	if b.inHole(b.pos) {
 		return 0, errHole
 	}
-	n := copy(p, b.data[b.pos:b.hole])
+	end := int64(len(b.data))
+	if b.pos < b.hole {
+		end = b.hole
+	}
+	n := copy(p, b.data[b.pos:end])
 	b.pos += int64(n)
 	return n, nil
 }
@@ -44,26 +60,66 @@ func (b *holedBody) Seek(off int64, whence int) (int64, error) {
 	case io.SeekEnd:
 		off += int64(len(b.data))
 	}
+	// a seek to the end needs the bytes just before it
+	if b.seekReads && (b.inHole(off) || (off > 0 && b.inHole(off-1))) {
+		return 0, errHole
+	}
 	b.pos = off
 	return off, nil
 }
 
-func serveHoled(t *testing.T, method string, hole int64, rangeHeader string) (*httptest.ResponseRecorder, *holedBody, error) {
+// holedRequest is one GET or HEAD against a holed 100-byte body.
+type holedRequest struct {
+	method    string
+	rng       string
+	hole      int64
+	holeEnd   int64
+	seekReads bool
+	// noType leaves Content-Type unset, so ServeContent sniffs it.
+	noType bool
+}
+
+func (hr holedRequest) serve(t *testing.T) (*httptest.ResponseRecorder, *holedBody, error) {
 	t.Helper()
-	body := &holedBody{data: []byte(strings.Repeat("0123456789", 10)), hole: hole}
+	body := &holedBody{data: []byte(strings.Repeat("0123456789", 10)), hole: hr.hole, holeEnd: hr.holeEnd, seekReads: hr.seekReads}
+	method := hr.method
+	if method == "" {
+		method = http.MethodGet
+	}
 	req := httptest.NewRequest(method, "/", nil)
-	if rangeHeader != "" {
-		req.Header.Set("Range", rangeHeader)
+	if hr.rng != "" {
+		req.Header.Set("Range", hr.rng)
 	}
 	rec := httptest.NewRecorder()
 	c := echo.New().NewContext(req, rec)
-	c.Response().Header().Set(echo.HeaderContentType, "application/octet-stream")
+	if !hr.noType {
+		c.Response().Header().Set(echo.HeaderContentType, "application/octet-stream")
+	}
 	c.Response().Header().Set("Content-Disposition", `inline; filename="a.bin"`)
 	err := serveContent(c, body)
 	if err != nil && c.Response().Committed {
 		t.Fatalf("an error came back after the response started")
 	}
 	return rec, body, err
+}
+
+func serveHoled(t *testing.T, method string, hole int64, rangeHeader string) (*httptest.ResponseRecorder, *holedBody, error) {
+	t.Helper()
+	return holedRequest{method: method, rng: rangeHeader, hole: hole}.serve(t)
+}
+
+// unwritten fails the test unless the response is still the caller's:
+// no body byte and none of the headers that described one.
+func unwritten(t *testing.T, rec *httptest.ResponseRecorder) {
+	t.Helper()
+	if rec.Body.Len() != 0 {
+		t.Errorf("wrote %d bytes before the first content byte: %q", rec.Body.Len(), rec.Body.String())
+	}
+	for _, k := range []string{"Content-Length", "Content-Range", "Accept-Ranges", "Content-Type", "Content-Disposition", "X-Content-Type-Options"} {
+		if v := rec.Header().Get(k); v != "" {
+			t.Errorf("%s = %q left for the error reply", k, v)
+		}
+	}
 }
 
 // A body that cannot produce the first byte of what was asked for is an
@@ -84,15 +140,49 @@ func TestServeContent_NoFirstByteIsAnError(t *testing.T) {
 			if !errors.Is(err, errHole) {
 				t.Fatalf("err = %v, want the read error", err)
 			}
-			if rec.Body.Len() != 0 {
-				t.Errorf("wrote %d bytes before the first content byte", rec.Body.Len())
-			}
-			for _, k := range []string{"Content-Length", "Content-Range", "Accept-Ranges", "Content-Type", "Content-Disposition"} {
-				if v := rec.Header().Get(k); v != "" {
-					t.Errorf("%s = %q left for the error reply", k, v)
-				}
-			}
+			unwritten(t, rec)
 		})
+	}
+}
+
+// A body that positions itself by reading fails in Seek, not in Read:
+// sizing it, seeking to a range, or seeking inside a multi-range reply.
+// ServeContent answers those with a 500, a 416 or a preamble of its
+// own; none of that may go out in place of the error.
+func TestServeContent_FailedSeekIsAnError(t *testing.T) {
+	for name, hr := range map[string]holedRequest{
+		"size check, end missing":      {hole: 50},
+		"head, end missing":            {method: http.MethodHead, hole: 50},
+		"range before a missing end":   {hole: 50, rng: "bytes=0-9"},
+		"range into a hole":            {hole: 40, holeEnd: 60, rng: "bytes=45-49"},
+		"multi-range, first in a hole": {hole: 40, holeEnd: 60, rng: "bytes=45-49,0-4"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			hr.seekReads = true
+			rec, _, err := hr.serve(t)
+			if !errors.Is(err, errHole) {
+				t.Fatalf("err = %v, want the seek error (reply: %d %q)", err, rec.Code, rec.Body.String())
+			}
+			unwritten(t, rec)
+		})
+	}
+}
+
+// Bytes read before the seek to the range do not count as its first
+// byte: with the type sniffed from the local head, a range in the hole
+// is still an error, and a HEAD is not failed by the sniff.
+func TestServeContent_SniffIsNotTheFirstByte(t *testing.T) {
+	rec, _, err := holedRequest{hole: 50, rng: "bytes=60-69", noType: true}.serve(t)
+	if !errors.Is(err, errHole) {
+		t.Fatalf("err = %v, want the read error (reply: %d, %d bytes)", err, rec.Code, rec.Body.Len())
+	}
+	if rec.Body.Len() != 0 {
+		t.Errorf("wrote %d bytes", rec.Body.Len())
+	}
+
+	rec, _, err = holedRequest{method: http.MethodHead, hole: 50, noType: true}.serve(t)
+	if err != nil || rec.Code != http.StatusOK {
+		t.Errorf("HEAD: %d, err %v", rec.Code, err)
 	}
 }
 

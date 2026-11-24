@@ -15,10 +15,10 @@ var contentLog = logger.NewNamed("content")
 
 // serveContent serves a seekable body through http.ServeContent (Range,
 // 206, HEAD) and sends nothing until the first content byte was read. A
-// body that cannot start comes back as that read's error, with the
-// response still unwritten, so the caller answers with a typed error
-// instead of a 2xx and an empty body. A read that fails later cuts the
-// body: the status is already out.
+// body that cannot start comes back as the read or seek error that
+// stopped it, with the response still unwritten, so the caller answers
+// with a typed error instead of a 2xx and an empty body. A read that
+// fails later cuts the body: the status is already out.
 //
 // The modtime is zero: ServeContent then skips Last-Modified and
 // If-Modified-Since, which a CRDT row has no meaning for.
@@ -30,14 +30,16 @@ func serveContent(c echo.Context, content io.ReadSeeker) error {
 	started, err := body.state()
 	switch {
 	case w.sent:
-		if err != nil {
+		// A client that went away is not a cut worth a log line.
+		if err != nil && c.Request().Context().Err() == nil {
 			contentLog.Warn("body cut after the first byte", zap.String("path", c.Path()), zap.Error(err))
 		}
 		return nil
 	case err != nil && !started:
-		// ServeContent described a body that will not follow.
+		// ServeContent described a body, or an error of its own, that
+		// must not go out.
 		h := c.Response().Header()
-		for _, k := range []string{"Content-Length", "Content-Range", "Accept-Ranges", "Content-Type", "Content-Disposition"} {
+		for _, k := range []string{"Content-Length", "Content-Range", "Accept-Ranges", "Content-Type", "Content-Disposition", "X-Content-Type-Options"} {
 			h.Del(k)
 		}
 		return err
@@ -46,14 +48,25 @@ func serveContent(c echo.Context, content io.ReadSeeker) error {
 	return w.release()
 }
 
-// watchedBody records whether the body produced a byte and the first
-// read error. ServeContent reads a multi-range body on another
+// watchedBody records, for the stretch since the last seek, whether the
+// body produced a byte and the first error. A seek starts a new
+// stretch: what was read before it (a type sniff, an earlier range)
+// says nothing about the range being served, while a seek that fails is
+// itself the error. ServeContent reads a multi-range body on another
 // goroutine, hence the lock.
 type watchedBody struct {
 	io.ReadSeeker
 	mu      sync.Mutex
 	started bool
 	err     error
+}
+
+func (b *watchedBody) Seek(offset int64, whence int) (int64, error) {
+	n, err := b.ReadSeeker.Seek(offset, whence)
+	b.mu.Lock()
+	b.started, b.err = false, err
+	b.mu.Unlock()
+	return n, err
 }
 
 func (b *watchedBody) Read(p []byte) (int, error) {
