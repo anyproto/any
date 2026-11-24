@@ -10849,6 +10849,16 @@ const docTemplate = `{
                         },
                         "description": "Not Found"
                     },
+                    "409": {
+                        "content": {
+                            "application/octet-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
                     "500": {
                         "content": {
                             "application/octet-stream": {
