@@ -23,8 +23,9 @@ import (
 	"github.com/anyproto/any/internal/config"
 )
 
-// childSpaceErrors is every parent and child space sentinel of the SDK
-// with the status and code it answers.
+// childSpaceErrors is every parent and child space sentinel of the SDK,
+// and the one of a space type with no guest role, with the status and
+// code it answers.
 var childSpaceErrors = []struct {
 	err      error
 	wantHTTP int
@@ -36,6 +37,7 @@ var childSpaceErrors = []struct {
 	{space.ErrParentPermissionDenied, http.StatusForbidden, "space.parent_permission_denied"},
 	{space.ErrChildSpacesLimitReached, http.StatusConflict, "space.child_limit_reached"},
 	{space.ErrNotParentMember, http.StatusConflict, "acl.not_parent_member"},
+	{space.ErrNoGuestRole, http.StatusConflict, "acl.no_guest_role"},
 	{space.ErrSpaceHasChildren, http.StatusConflict, "space.has_children"},
 	{space.ErrNotChildSpace, http.StatusConflict, "space.not_child"},
 	{space.ErrSpaceNotStored, http.StatusConflict, "space.not_stored"},
@@ -722,9 +724,11 @@ func TestServer_ACLRemove_DuplicateIdentities(t *testing.T) {
 }
 
 // The routes that share a space (invite create, guest key, direct add)
-// answer the code of a child's recorded refusal, as retry-push does, and
-// 409 space.not_pushed for a space whose first push has not landed. The
-// errors are shaped as the SDK returns them.
+// answer 409 space.not_pushed for a space whose first push has not
+// landed. On a child, invite create and direct add answer the code of
+// its recorded refusal, as retry-push does; the guest key and a direct
+// add at the guest role answer 409 acl.no_guest_role. The errors are
+// shaped as the SDK returns them.
 func TestShareOpError_Mapping(t *testing.T) {
 	refused := func(cause error, label string) error {
 		return fmt.Errorf("acl: space %q is on no node, the coordinator refused it (%s): %w", "s1", label, cause)
@@ -740,6 +744,8 @@ func TestShareOpError_Mapping(t *testing.T) {
 		{refused(space.ErrChildSpacesLimitReached, "child_limit_reached"), http.StatusConflict, "space.child_limit_reached"},
 		{fmt.Errorf("acl: make shareable (after %d attempts): %w: %w", 35, space.ErrSpaceUnknown, coordinatorproto.ErrSpaceNotExists),
 			http.StatusConflict, "space.not_pushed"},
+		{fmt.Errorf("acl: %s: space %q of type %s: %w", "CreateGuestKey", "s1", space.SpaceTypeOrganizationSpace, space.ErrNoGuestRole),
+			http.StatusConflict, "acl.no_guest_role"},
 	} {
 		// "" is a call that takes no identities; accounts is the direct add.
 		for _, field := range []string{"", "accounts"} {
@@ -754,6 +760,67 @@ func TestShareOpError_Mapping(t *testing.T) {
 			}
 		}
 	}
+}
+
+// An organization and its child spaces have no guest role: the routes
+// that would let an account in as a guest answer 409 acl.no_guest_role,
+// with no network and for the whole batch. A request that names no
+// guest role is past that check.
+func TestServer_NoGuestRole(t *testing.T) {
+	_, e := newOfflineServer(t)
+	org := createOrganization(t, e, "org")
+	child := createChild(t, e, org, "child").Id
+	member, other := newIdentity(t), newIdentity(t)
+
+	add := func(perms ...string) string {
+		var req api.ACLAddRequest
+		for i, perm := range perms {
+			req.Accounts = append(req.Accounts, api.ACLAddAccount{Identity: []string{member, other}[i], Permission: perm})
+		}
+		body, _ := json.Marshal(req)
+		return string(body)
+	}
+	change := func(perms ...string) string {
+		var req api.ACLChangePermissionsRequest
+		for i, perm := range perms {
+			req.Changes = append(req.Changes, api.ACLPermissionChange{Identity: []string{member, other}[i], Permission: perm})
+		}
+		body, _ := json.Marshal(req)
+		return string(body)
+	}
+	accept := func(perm string) string {
+		return fmt.Sprintf(`{"requestRecordId":"bafyreirequest","permission":%q}`, perm)
+	}
+
+	for what, id := range map[string]string{"an organization": org, "a child space": child} {
+		for _, r := range []struct{ name, method, suffix, body string }{
+			{"guest key", http.MethodPost, "/guest-key", ""},
+			{"guest key revoke", http.MethodDelete, "/guest-key", ""},
+			{"direct add of a guest", http.MethodPost, "/acl/add", add("guest")},
+			{"direct add of a writer and a guest", http.MethodPost, "/acl/add", add("writer", "guest")},
+			{"permission change to guest", http.MethodPost, "/acl/permissions", change("guest")},
+			{"permission change to reader and to guest", http.MethodPost, "/acl/permissions", change("reader", "guest")},
+			{"accept as a guest", http.MethodPost, "/acl/accept", accept("guest")},
+		} {
+			rec := doJSON(t, e, r.method, "/v1/spaces/"+id+r.suffix, r.body)
+			expectError(t, what+": "+r.name, rec, http.StatusConflict, "acl.no_guest_role")
+			var env api.ErrorEnvelope
+			if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+				t.Fatal(err)
+			}
+			if got := env.Error.Details["spaceId"]; got != id {
+				t.Errorf("%s: %s: details %v, want the spaceId", what, r.name, env.Error.Details)
+			}
+		}
+		// Past the check, the ACL answers for the identity it does not hold.
+		rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+id+"/acl/permissions", change("reader"))
+		expectError(t, what+": permission change to reader", rec, http.StatusNotFound, "members.not_found")
+	}
+
+	// A space of type any.space has the guest role.
+	plain := createSpace(t, e, "plain")
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/"+plain+"/acl/permissions", change("guest"))
+	expectError(t, "any.space: permission change to guest", rec, http.StatusNotFound, "members.not_found")
 }
 
 // An active space of the account that is on no node answers the code of

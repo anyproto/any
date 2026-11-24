@@ -210,7 +210,7 @@ func (d *deps) childRemoveMembers(c echo.Context) error {
 //	@Param			body	body	api.ACLOwnershipRequest	true	"New owner + the role the previous owner keeps: reader, writer or admin"
 //	@Success		204
 //	@Failure		400	{object}	api.ErrorEnvelope	"request.missing_field — newOwner or oldOwnerPerm is missing; request.invalid_field — oldOwnerPerm is none, guest or owner, or childId is not a space id; request.schema — an unknown permission"
-//	@Failure		403	{object}	api.ErrorEnvelope	"space.parent_permission_denied — the account is neither the owner of the parent nor the child's own owner; acl.forbidden — the new owner is the owner already or a guest identity, or the space is a top-level space of another account"
+//	@Failure		403	{object}	api.ErrorEnvelope	"space.parent_permission_denied — the account is neither the owner of the parent nor the child's own owner; acl.forbidden — the new owner is the owner already, or the space is a top-level space of another account"
 //	@Failure		404	{object}	api.ErrorEnvelope	"members.not_found — the new owner is no member of the child; space.not_found — the coordinator does not know the space"
 //	@Failure		409	{object}	api.ErrorEnvelope	"space.not_child — the account's space list shows the space has no parent; space.deleted — the coordinator holds the space as deleted or in deletion; acl.not_parent_member — the new owner is no member of the parent; space.parent_not_available — the coordinator cannot read the ACL of the child's parent"
 //	@Failure		503	{object}	api.ErrorEnvelope	"network.unreachable — the network could not be reached; nothing changed"
@@ -307,9 +307,9 @@ func (d *deps) spaceRetryPush(c echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
-// childSpaceError maps the SDK's parent and child space sentinels.
-// Shared by the space, op and ACL mappers, so a refusal reads the same
-// on every route.
+// childSpaceError maps the SDK's parent and child space sentinels, and
+// the one of a space type with no guest role. Shared by the space, op
+// and ACL mappers, so a refusal reads the same on every route.
 func childSpaceError(c echo.Context, err error, details map[string]any) (error, bool) {
 	switch {
 	case errors.Is(err, space.ErrOffline):
@@ -330,6 +330,9 @@ func childSpaceError(c echo.Context, err error, details map[string]any) (error, 
 	case errors.Is(err, space.ErrNotParentMember):
 		return writeError(c, http.StatusConflict, "acl.not_parent_member",
 			"only a member of the parent space becomes a member of a child space", details), true
+	case errors.Is(err, space.ErrNoGuestRole):
+		return writeError(c, http.StatusConflict, "acl.no_guest_role",
+			"an organization and its child spaces have no guest role and no guest key: a read-only member is a reader", details), true
 	case errors.Is(err, space.ErrSpaceHasChildren):
 		return writeError(c, http.StatusConflict, "space.has_children",
 			"the space still has child spaces: delete them, then delete the space once its children list is empty", details), true

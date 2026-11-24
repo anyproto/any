@@ -5525,7 +5525,7 @@ const docTemplate = `{
                                 }
                             }
                         },
-                        "description": "space.parent_permission_denied — the account is neither the owner of the parent nor the child's own owner; acl.forbidden — the new owner is the owner already or a guest identity, or the space is a top-level space of another account"
+                        "description": "space.parent_permission_denied — the account is neither the owner of the parent nor the child's own owner; acl.forbidden — the new owner is the owner already, or the space is a top-level space of another account"
                     },
                     "404": {
                         "content": {
@@ -8772,7 +8772,7 @@ const docTemplate = `{
                                 }
                             }
                         },
-                        "description": "acl.limit_reached — the owner's plan is at its limit of readers or writers for the space; acl.not_parent_member — in a child space, the joiner is not a member of the parent; space.parent_not_available — in a child space, the coordinator cannot read the ACL of the parent"
+                        "description": "acl.limit_reached — the owner's plan is at its limit of readers or writers for the space; acl.not_parent_member — in a child space, the joiner is not a member of the parent; space.parent_not_available — in a child space, the coordinator cannot read the ACL of the parent; acl.no_guest_role — permission guest in an organization or one of its child spaces"
                     },
                     "500": {
                         "content": {
@@ -8856,7 +8856,7 @@ const docTemplate = `{
                                 }
                             }
                         },
-                        "description": "acl.limit_reached — the owner's plan is at its limit of shared spaces, or of readers or writers for the space; acl.not_parent_member — in a child space, an added account is not a member of the parent; space.derived_unshareable — a derived space; space.not_pushed — the space's first push has not landed; space.parent_not_available, space.parent_invalid, space.child_limit_reached — a child the coordinator refused; space.parent_not_available — also in a child space, when the coordinator cannot read the ACL of the parent"
+                        "description": "acl.limit_reached — the owner's plan is at its limit of shared spaces, or of readers or writers for the space; acl.not_parent_member — in a child space, an added account is not a member of the parent; acl.no_guest_role — an account added as guest in an organization or one of its child spaces, and nobody of the batch is added; space.derived_unshareable — a derived space; space.not_pushed — the space's first push has not landed; space.parent_not_available, space.parent_invalid, space.child_limit_reached — a child the coordinator refused; space.parent_not_available — also in a child space, when the coordinator cannot read the ACL of the parent"
                     },
                     "500": {
                         "content": {
@@ -9143,7 +9143,7 @@ const docTemplate = `{
                                 }
                             }
                         },
-                        "description": "acl.limit_reached — the owner's plan is at its limit of readers or writers for the space"
+                        "description": "acl.limit_reached — the owner's plan is at its limit of readers or writers for the space; acl.no_guest_role — a change to guest in an organization or one of its child spaces, and no change of the batch is made"
                     },
                     "500": {
                         "content": {
@@ -11734,6 +11734,16 @@ const docTemplate = `{
                         },
                         "description": "No active guest key"
                     },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "acl.no_guest_role — an organization or one of its child spaces, for any caller"
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -11751,7 +11761,7 @@ const docTemplate = `{
                 ]
             },
             "post": {
-                "description": "Mints a shared read-only guest identity (ACL guest account) and returns it as an invite token for POST /v1/spaces/join. Idempotent: one active guest key per space; repeated calls return the same token. Owner only.",
+                "description": "Mints a shared read-only guest identity (ACL guest account) and returns it as an invite token for POST /v1/spaces/join. Idempotent: one active guest key per space; repeated calls return the same token. Owner only. An organization and its child spaces have no guest role, and so no guest key.",
                 "parameters": [
                     {
                         "description": "Space ID",
@@ -11774,16 +11784,6 @@ const docTemplate = `{
                         },
                         "description": "Created"
                     },
-                    "403": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
-                                }
-                            }
-                        },
-                        "description": "space.parent_permission_denied — a child the coordinator refused for the role in its parent"
-                    },
                     "409": {
                         "content": {
                             "application/json": {
@@ -11792,7 +11792,7 @@ const docTemplate = `{
                                 }
                             }
                         },
-                        "description": "acl.limit_reached — the owner's plan is at its limit of shared spaces or of this space's readers; space.derived_unshareable — a derived space; space.not_pushed — the space's first push has not landed; space.parent_not_available, space.parent_invalid, space.child_limit_reached — a child the coordinator refused"
+                        "description": "acl.no_guest_role — an organization or one of its child spaces, for any caller; acl.limit_reached — the owner's plan is at its limit of shared spaces or of this space's readers; space.derived_unshareable — a derived space; space.not_pushed — the space's first push has not landed"
                     },
                     "500": {
                         "content": {

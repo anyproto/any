@@ -174,13 +174,12 @@ func (d *deps) inviteRevokeAll(c echo.Context) error {
 // guestKeyCreate handles POST /v1/spaces/:spaceId/guest-key.
 //
 //	@Summary	Create (or return) the space's guest key — public read-only access
-//	@Description	Mints a shared read-only guest identity (ACL guest account) and returns it as an invite token for POST /v1/spaces/join. Idempotent: one active guest key per space; repeated calls return the same token. Owner only.
+//	@Description	Mints a shared read-only guest identity (ACL guest account) and returns it as an invite token for POST /v1/spaces/join. Idempotent: one active guest key per space; repeated calls return the same token. Owner only. An organization and its child spaces have no guest role, and so no guest key.
 //	@Tags		invites
 //	@Produce	json
 //	@Param		spaceId	path		string	true	"Space ID"
 //	@Success	201		{object}	api.InviteCreateResponse
-//	@Failure	403		{object}	api.ErrorEnvelope	"space.parent_permission_denied — a child the coordinator refused for the role in its parent"
-//	@Failure	409		{object}	api.ErrorEnvelope	"acl.limit_reached — the owner's plan is at its limit of shared spaces or of this space's readers; space.derived_unshareable — a derived space; space.not_pushed — the space's first push has not landed; space.parent_not_available, space.parent_invalid, space.child_limit_reached — a child the coordinator refused"
+//	@Failure	409		{object}	api.ErrorEnvelope	"acl.no_guest_role — an organization or one of its child spaces, for any caller; acl.limit_reached — the owner's plan is at its limit of shared spaces or of this space's readers; space.derived_unshareable — a derived space; space.not_pushed — the space's first push has not landed"
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/guest-key [post]
 func (d *deps) guestKeyCreate(c echo.Context) error {
@@ -213,6 +212,7 @@ func (d *deps) guestKeyCreate(c echo.Context) error {
 //	@Param		spaceId	path	string	true	"Space ID"
 //	@Success	204
 //	@Failure	404	{object}	api.ErrorEnvelope	"No active guest key"
+//	@Failure	409	{object}	api.ErrorEnvelope	"acl.no_guest_role — an organization or one of its child spaces, for any caller"
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/guest-key [delete]
 func (d *deps) guestKeyRevoke(c echo.Context) error {

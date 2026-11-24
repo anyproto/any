@@ -20,7 +20,7 @@ import (
 //	@Param		body	body	api.ACLAcceptRequest	true	"Request record + permission"
 //	@Success	204
 //	@Failure	400	{object}	api.ErrorEnvelope
-//	@Failure	409	{object}	api.ErrorEnvelope	"acl.limit_reached — the owner's plan is at its limit of readers or writers for the space; acl.not_parent_member — in a child space, the joiner is not a member of the parent; space.parent_not_available — in a child space, the coordinator cannot read the ACL of the parent"
+//	@Failure	409	{object}	api.ErrorEnvelope	"acl.limit_reached — the owner's plan is at its limit of readers or writers for the space; acl.not_parent_member — in a child space, the joiner is not a member of the parent; space.parent_not_available — in a child space, the coordinator cannot read the ACL of the parent; acl.no_guest_role — permission guest in an organization or one of its child spaces"
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/acl/accept [post]
 func (d *deps) aclAccept(c echo.Context) error {
@@ -85,7 +85,7 @@ func (d *deps) aclDecline(c echo.Context) error {
 //	@Success	204
 //	@Failure	400	{object}	api.ErrorEnvelope
 //	@Failure	404	{object}	api.ErrorEnvelope	"members.not_found — an identity the ACL holds no account of"
-//	@Failure	409	{object}	api.ErrorEnvelope	"acl.limit_reached — the owner's plan is at its limit of readers or writers for the space"
+//	@Failure	409	{object}	api.ErrorEnvelope	"acl.limit_reached — the owner's plan is at its limit of readers or writers for the space; acl.no_guest_role — a change to guest in an organization or one of its child spaces, and no change of the batch is made"
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/acl/permissions [post]
 func (d *deps) aclChangePermissions(c echo.Context) error {
@@ -162,7 +162,7 @@ func (d *deps) aclRemove(c echo.Context) error {
 //	@Success	204
 //	@Failure	400	{object}	api.ErrorEnvelope
 //	@Failure	403	{object}	api.ErrorEnvelope	"space.parent_permission_denied — a child the coordinator refused for the role in its parent"
-//	@Failure	409	{object}	api.ErrorEnvelope	"acl.limit_reached — the owner's plan is at its limit of shared spaces, or of readers or writers for the space; acl.not_parent_member — in a child space, an added account is not a member of the parent; space.derived_unshareable — a derived space; space.not_pushed — the space's first push has not landed; space.parent_not_available, space.parent_invalid, space.child_limit_reached — a child the coordinator refused; space.parent_not_available — also in a child space, when the coordinator cannot read the ACL of the parent"
+//	@Failure	409	{object}	api.ErrorEnvelope	"acl.limit_reached — the owner's plan is at its limit of shared spaces, or of readers or writers for the space; acl.not_parent_member — in a child space, an added account is not a member of the parent; acl.no_guest_role — an account added as guest in an organization or one of its child spaces, and nobody of the batch is added; space.derived_unshareable — a derived space; space.not_pushed — the space's first push has not landed; space.parent_not_available, space.parent_invalid, space.child_limit_reached — a child the coordinator refused; space.parent_not_available — also in a child space, when the coordinator cannot read the ACL of the parent"
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/acl/add [post]
 func (d *deps) aclAdd(c echo.Context) error {

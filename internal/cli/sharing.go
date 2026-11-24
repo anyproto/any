@@ -152,7 +152,7 @@ func newInviteCmd() *cobra.Command {
 		},
 		&cobra.Command{
 			Use:   "guest-key <spaceId>",
-			Short: "mint (or return) the space's public read-only guest key token",
+			Short: "mint (or return) the space's public read-only guest key token; an organization and its spaces have none",
 			Args:  cobra.ExactArgs(1),
 			RunE: func(cmd *cobra.Command, args []string) error {
 				cl := newClient(flags.Timeout)
@@ -266,7 +266,7 @@ func newACLCmd() *cobra.Command {
 			},
 		}
 		acc.Flags().StringVar(&record, "record", "", "request record id from `any members requests`")
-		acc.Flags().StringVar(&perm, "permission", "writer", "granted permission (none|reader|guest|writer|admin)")
+		acc.Flags().StringVar(&perm, "permission", "writer", "granted permission (none|reader|guest|writer|admin); an organization and its spaces have no guest role")
 		_ = acc.MarkFlagRequired("record")
 		cmd.AddCommand(acc)
 	}
