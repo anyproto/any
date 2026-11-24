@@ -11,13 +11,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anyproto/any-sync-sdk/space"
+
 	"github.com/anyproto/any/internal/api"
 )
 
 // childSpacesNodeconfEnv names the nodeconf of a network whose
-// coordinator accepts child spaces. Unset, the child-space tests skip.
-// Set, they run against that network, and a network without the
-// feature fails them.
+// coordinator accepts organizations and their child spaces. Unset, the
+// child-space tests skip. Set, they run against that network, and a
+// network without the feature fails them.
 const childSpacesNodeconfEnv = "ANY_E2E_CHILD_SPACES_NODECONF"
 
 // childSpacesNodeconf resolves the nodeconf the child-space tests run
@@ -29,7 +31,7 @@ func childSpacesNodeconf(t *testing.T) string {
 	}
 	path := os.Getenv(childSpacesNodeconfEnv)
 	if path == "" {
-		t.Skipf("set %s to the nodeconf of a network whose coordinator accepts child spaces", childSpacesNodeconfEnv)
+		t.Skipf("set %s to the nodeconf of a network whose coordinator accepts organizations and their child spaces", childSpacesNodeconfEnv)
 	}
 	abs, err := filepath.Abs(path)
 	if err != nil {
@@ -61,15 +63,29 @@ func restartPeer(t *testing.T, bin string, p *peer) {
 	waitForReady(t, p.addr, 60*time.Second)
 }
 
+// createOrganization creates on p an organization, the space children
+// are created under, and checks the reply reads its type.
+func createOrganization(t *testing.T, p *peer, name string) api.SpaceInfo {
+	t.Helper()
+	body, _ := json.Marshal(api.SpaceCreateRequest{Name: name, SpaceType: space.SpaceTypeOrganization})
+	var sp api.SpaceInfo
+	mustJSON(t, http.MethodPost, p.base+"/v1/spaces", string(body), http.StatusCreated, &sp)
+	if sp.Id == "" || sp.Type != space.SpaceTypeOrganization || sp.SpaceType != space.SpaceTypeOrganization ||
+		sp.ParentSpaceId != "" || sp.Status != api.SpaceStatusActive {
+		t.Fatalf("%s: create organization %q = %+v, want an active top-level space of type %s", p.name, name, sp, space.SpaceTypeOrganization)
+	}
+	return sp
+}
+
 // createChild creates a child of parentId on p and checks the reply
-// names the parent.
+// names the parent and reads the type of a child.
 func createChild(t *testing.T, p *peer, parentId, name string) api.SpaceInfo {
 	t.Helper()
 	body, _ := json.Marshal(api.SpaceCreateRequest{Name: name, ParentSpaceId: parentId})
 	var sp api.SpaceInfo
 	mustJSON(t, http.MethodPost, p.base+"/v1/spaces", string(body), http.StatusCreated, &sp)
-	if sp.Id == "" || sp.ParentSpaceId != parentId || sp.Status != api.SpaceStatusActive {
-		t.Fatalf("%s: create child %q of %s = %+v, want an active space naming its parent", p.name, name, parentId, sp)
+	if sp.Id == "" || sp.ParentSpaceId != parentId || sp.Type != space.SpaceTypeOrganizationSpace || sp.Status != api.SpaceStatusActive {
+		t.Fatalf("%s: create child %q of %s = %+v, want an active %s naming its parent", p.name, name, parentId, sp, space.SpaceTypeOrganizationSpace)
 	}
 	return sp
 }
@@ -329,18 +345,23 @@ func wantError(t *testing.T, p *peer, method, path, body string, status int, cod
 	}
 }
 
-// sharingRefused checks that the three calls that share the refused
-// child spaceId answer status and code on p at once.
+// sharingRefused checks that the calls that share the refused child
+// spaceId answer on p at once: invite create and direct add with status
+// and code, the guest key with the code of a space with no guest role.
 func sharingRefused(t *testing.T, p *peer, spaceId, identity string, status int, code string) {
 	t.Helper()
 	add, _ := json.Marshal(api.ACLAddRequest{Accounts: []api.ACLAddAccount{{Identity: identity, Permission: api.SpacePermissionWriter}}})
-	for _, call := range []struct{ path, body string }{
-		{"/invites", ""},
-		{"/guest-key", ""},
-		{"/acl/add", string(add)},
+	for _, call := range []struct {
+		path, body string
+		status     int
+		code       string
+	}{
+		{"/invites", "", status, code},
+		{"/guest-key", "", http.StatusConflict, "acl.no_guest_role"},
+		{"/acl/add", string(add), status, code},
 	} {
 		start := time.Now()
-		wantError(t, p, http.MethodPost, "/v1/spaces/"+spaceId+call.path, call.body, status, code)
+		wantError(t, p, http.MethodPost, "/v1/spaces/"+spaceId+call.path, call.body, call.status, call.code)
 		if took := time.Since(start); took > 10*time.Second {
 			t.Errorf("%s: POST %s on the refused child took %s, want its answer at once", p.name, call.path, took.Round(time.Second))
 		}

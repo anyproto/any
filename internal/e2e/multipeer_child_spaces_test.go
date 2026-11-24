@@ -1,11 +1,12 @@
-// Child spaces across peers: a space created under a parent space, with
-// its own members and read key, governed from the parent without being
-// read. Each peer is its own account unless a test says otherwise.
+// Child spaces across peers: a space created under a parent space, an
+// organization, with its own members and read key, governed from the
+// parent without being read. Each peer is its own account unless a test
+// says otherwise.
 //
 // Gating: runs against the network named by
 // ANY_E2E_CHILD_SPACES_NODECONF, and skips when it is unset. The network
 // must provide:
-//   - a coordinator that accepts child spaces;
+//   - a coordinator that accepts organizations and their child spaces;
 //   - a child-spaces limit of 2 to 10 for a new account: the story test
 //     creates a second child while the first exists, and the refusals
 //     test fills the limit and accepts 1 to 10;
@@ -26,12 +27,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anyproto/any-sync-sdk/space"
+
 	"github.com/anyproto/any/internal/api"
 )
 
-// TestE2E_MultipeerChildSpaces_Story: a writer of the parent creates a
-// child, which the parent's owner lists without being a member of it.
-// The child's owner adds members of the parent, who read it. The
+// TestE2E_MultipeerChildSpaces_Story: the parent is an organization,
+// and a space like any other: its members join on an invite and read
+// what is written in it. A writer of the parent creates a child, which
+// the parent's owner lists without being a member of it. The child's
+// owner adds members of the parent, who read it. The
 // parent's owner reads the child's members and removes one: the key
 // rotation is pending until a device of the child's owner changes the
 // key, and the removed member reads nothing written after it. The
@@ -53,10 +58,17 @@ func TestE2E_MultipeerChildSpaces_Story(t *testing.T) {
 	ownerId, writerId := accountId(t, owner.base), accountId(t, writer.base)
 	removedId, staysId := accountId(t, removed.base), accountId(t, stays.base)
 
-	var parent api.SpaceInfo
-	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces", `{"name":"Parent"}`, http.StatusCreated, &parent)
+	parent := createOrganization(t, owner, "Parent")
 	joinAs(t, owner, parent.Id, api.SpacePermissionWriter, writer, stays)
 	joinAs(t, owner, parent.Id, api.SpacePermissionReader, removed)
+	const parentText = "Written in the organization"
+	parentNote := createType(t, owner.base, parent.Id, parentText)
+	for _, p := range []*peer{writer, removed} {
+		waitNote(t, p, parent.Id, parentNote, parentText)
+		waitSpace(t, p, parent.Id, "the joined organization reads its type", time.Minute, func(si api.SpaceInfo) bool {
+			return si.Type == space.SpaceTypeOrganization && si.ParentSpaceId == ""
+		})
+	}
 
 	child := createChild(t, writer, parent.Id, "Child")
 	waitSpace(t, writer, child.Id, "the creator owns the child", time.Minute, func(si api.SpaceInfo) bool {
@@ -72,8 +84,8 @@ func TestE2E_MultipeerChildSpaces_Story(t *testing.T) {
 		acceptAdd(t, p, child.Id)
 		waitNote(t, p, child.Id, before, beforeText)
 	}
-	waitSpace(t, removed, child.Id, "the joined child names its parent", time.Minute, func(si api.SpaceInfo) bool {
-		return si.ParentSpaceId == parent.Id
+	waitSpace(t, removed, child.Id, "the joined child names its parent and reads its type", time.Minute, func(si api.SpaceInfo) bool {
+		return si.ParentSpaceId == parent.Id && si.Type == space.SpaceTypeOrganizationSpace
 	})
 
 	waitChildMembers(t, owner, child.Id, "the parent's owner reads the child's members", func(m map[string]api.ChildMember, pending bool) bool {
@@ -225,13 +237,15 @@ func TestE2E_MultipeerChildSpaces_Story(t *testing.T) {
 // TestE2E_MultipeerChildSpaces_Refusals: the account limits carry the
 // child-spaces limit. The children list of a parent created a moment
 // ago answers 409 until the parent is on the network, and neither 404
-// nor 5xx. A reader's child is refused for the role, stays a usable
-// local space, answers the refusal's code on the routes that share it
-// and on its children list, and shows the refusal on a second device of
-// the account. A writer and a reader cannot list the children. The
-// children of the owner's parents fill its limit; the next child is
-// refused for the limit and accepted by retry-push once a place frees
-// up. The parent-side routes answer their codes for an unknown child, a
+// nor 5xx. Only an organization is a parent: a space of type any.space
+// is refused as one. A reader's child is refused for the
+// role, stays a usable local space, answers the refusal's code on
+// invite create, direct add and its children list, has no guest key
+// like any child, and shows the refusal on a second device of the
+// account. A writer and a reader cannot list the children. The children
+// of the owner's parents fill its limit; the next child is refused for
+// the limit and accepted by retry-push once a place frees up. The
+// parent-side routes answer their codes for an unknown child, a
 // top-level space and an id that is not a space id.
 func TestE2E_MultipeerChildSpaces_Refusals(t *testing.T) {
 	nodeconf := childSpacesNodeconf(t)
@@ -267,8 +281,7 @@ func TestE2E_MultipeerChildSpaces_Refusals(t *testing.T) {
 	// coordinator does not know it, then its ACL is still on the way.
 	// The account holds it all along, so the list never answers 404.
 	t.Run("ChildrenOfAParentJustCreated", func(t *testing.T) {
-		var fresh api.SpaceInfo
-		mustJSON(t, http.MethodPost, owner.base+"/v1/spaces", `{"name":"Parent created a moment ago"}`, http.StatusCreated, &fresh)
+		fresh := createOrganization(t, owner, "Parent created a moment ago")
 		var seen []string
 		for deadline := time.Now().Add(2 * time.Minute); ; time.Sleep(50 * time.Millisecond) {
 			resp, raw := doRequest(t, http.MethodGet, owner.base+"/v1/spaces/"+fresh.Id+"/children", "")
@@ -294,11 +307,35 @@ func TestE2E_MultipeerChildSpaces_Refusals(t *testing.T) {
 		}
 	})
 
-	var parent1, parent2 api.SpaceInfo
-	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces", `{"name":"Parent 1"}`, http.StatusCreated, &parent1)
-	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces", `{"name":"Parent 2"}`, http.StatusCreated, &parent2)
+	parent1 := createOrganization(t, owner, "Parent 1")
+	parent2 := createOrganization(t, owner, "Parent 2")
 	joinAs(t, owner, parent1.Id, api.SpacePermissionWriter, writer)
 	joinAs(t, owner, parent1.Id, api.SpacePermissionReader, reader)
+
+	// The account's own list shows the type of a space it created, so
+	// the create answers at once and makes no child.
+	t.Run("OnlyAnOrganizationIsAParent", func(t *testing.T) {
+		var plain api.SpaceInfo
+		mustJSON(t, http.MethodPost, owner.base+"/v1/spaces", `{"name":"Outside any organization"}`, http.StatusCreated, &plain)
+		if plain.Type != space.SpaceTypeAny {
+			t.Fatalf("a space created with no spaceType = %+v, want type %s", plain, space.SpaceTypeAny)
+		}
+		body, _ := json.Marshal(api.SpaceCreateRequest{Name: "Child of a space of type any.space", ParentSpaceId: plain.Id})
+		wantError(t, owner, http.MethodPost, "/v1/spaces", string(body), http.StatusConflict, "space.parent_invalid")
+		var list struct {
+			Records []map[string]any `json:"records"`
+		}
+		query, _ := json.Marshal(map[string]any{"filter": map[string]any{"parentSpaceId": plain.Id}})
+		mustJSON(t, http.MethodPost, owner.base+"/v1/spaces/query", string(query), http.StatusOK, &list)
+		if len(list.Records) != 0 {
+			t.Errorf("the refused create left %d rows naming the space as their parent", len(list.Records))
+		}
+		// The type of a child takes a parent, and a child takes no other.
+		wantError(t, owner, http.MethodPost, "/v1/spaces", `{"spaceType":"any.organization.space"}`,
+			http.StatusBadRequest, "request.invalid_field")
+		body, _ = json.Marshal(api.SpaceCreateRequest{ParentSpaceId: parent2.Id, SpaceType: space.SpaceTypeAny})
+		wantError(t, owner, http.MethodPost, "/v1/spaces", string(body), http.StatusBadRequest, "request.invalid_field")
+	})
 
 	// A reader's child: refused for the role, and usable locally.
 	readersChild := createChild(t, reader, parent1.Id, "Reader's child")
@@ -319,9 +356,9 @@ func TestE2E_MultipeerChildSpaces_Refusals(t *testing.T) {
 		t.Errorf("refusal after a refused retry = %q, want parent_permission_denied", row.Refusal)
 	}
 
-	// A refused child is on no node: the routes that share it and its
+	// A refused child is on no node: invite create, direct add and its
 	// children list answer the code of its refusal at once, with no wait
-	// for a push.
+	// for a push. The guest key answers as on any child.
 	t.Run("SharingARefusedChild", func(t *testing.T) {
 		sharingRefused(t, reader, readersChild.Id, writerId, http.StatusForbidden, "space.parent_permission_denied")
 		wantError(t, reader, http.MethodGet, "/v1/spaces/"+readersChild.Id+"/children", "",
@@ -456,9 +493,11 @@ func TestE2E_MultipeerChildSpaces_Refusals(t *testing.T) {
 // become members of a child. An account outside the parent is refused
 // on a direct add, with nobody of the batch added, and on a join, with
 // no row written; the acceptance of a member who left the parent after
-// asking is refused. A guest key of the child's owner gives the
-// outsider read-only access. The parent-side routes change nothing in
-// the parent, a top-level space the outsider does not hold.
+// asking is refused. The organization and the child have no guest role:
+// the guest key routes, and a direct add, a permission change and an
+// accept at the guest role, answer acl.no_guest_role for any caller,
+// and no account becomes a guest. The parent-side routes change nothing
+// in the parent, a top-level space the outsider does not hold.
 func TestE2E_MultipeerChildSpaces_Membership(t *testing.T) {
 	nodeconf := childSpacesNodeconf(t)
 	bin := buildBinary(t)
@@ -470,16 +509,14 @@ func TestE2E_MultipeerChildSpaces_Membership(t *testing.T) {
 	defer leaver.stop(t)
 	outsider := startPeerConf(t, bin, "outsider", nodeconf)
 	defer outsider.stop(t)
+	ownerId, writerId := accountId(t, owner.base), accountId(t, writer.base)
 	leaverId, outsiderId := accountId(t, leaver.base), accountId(t, outsider.base)
 
-	var parent api.SpaceInfo
-	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces", `{"name":"Parent"}`, http.StatusCreated, &parent)
+	parent := createOrganization(t, owner, "Parent")
 	joinAs(t, owner, parent.Id, api.SpacePermissionWriter, writer)
 	joinAs(t, owner, parent.Id, api.SpacePermissionReader, leaver)
 	child := createChild(t, writer, parent.Id, "Child")
 	waitListed(t, owner, parent.Id, child.Id)
-	const noteText = "For the members of the child"
-	note := createType(t, writer.base, child.Id, noteText)
 
 	notMember := func(t *testing.T, identities ...string) {
 		t.Helper()
@@ -546,29 +583,68 @@ func TestE2E_MultipeerChildSpaces_Membership(t *testing.T) {
 		notMember(t, leaverId)
 	})
 
-	t.Run("GuestKeyForAnOutsider", func(t *testing.T) {
-		var guest api.InviteCreateResponse
-		mustJSON(t, http.MethodPost, writer.base+"/v1/spaces/"+child.Id+"/guest-key", "", http.StatusCreated, &guest)
-		body, _ := json.Marshal(api.SpaceJoinRequest{InviteToken: guest.InviteToken})
-		resp, raw := doRequest(t, http.MethodPost, outsider.base+"/v1/spaces/join", string(body))
-		if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusAccepted {
-			t.Fatalf("guest join: %d %s", resp.StatusCode, raw)
+	// The type of the space decides, before the caller's role is read
+	// and before the request names a member or a record the ACL holds:
+	// the accepted record id is made up.
+	t.Run("NoGuestRole", func(t *testing.T) {
+		guestAdd, _ := json.Marshal(api.ACLAddRequest{Accounts: []api.ACLAddAccount{
+			{Identity: outsiderId, Permission: api.SpacePermissionGuest},
+		}})
+		guestAccept, _ := json.Marshal(api.ACLAcceptRequest{RequestRecordId: "bafyreirequest", Permission: api.SpacePermissionGuest})
+		toGuest := func(identity string) string {
+			body, _ := json.Marshal(api.ACLChangePermissionsRequest{Changes: []api.ACLPermissionChange{
+				{Identity: identity, Permission: api.SpacePermissionGuest},
+			}})
+			return string(body)
 		}
-		waitSpace(t, outsider, child.Id, "the guest's copy is active", 2*time.Minute, func(si api.SpaceInfo) bool {
-			return si.Status == api.SpaceStatusActive && si.OwnRole == api.SpacePermissionGuest
-		})
-		waitNote(t, outsider, child.Id, note, noteText)
-		wantError(t, outsider, http.MethodPost, "/v1/spaces/"+child.Id+"/types",
-			`{"name":"Written by a guest","xKey":"written_by_a_guest"}`, http.StatusForbidden, "space.read_only")
-		waitSpace(t, outsider, child.Id, "the guest's row names the parent", time.Minute, func(si api.SpaceInfo) bool {
-			return si.ParentSpaceId == parent.Id
-		})
+		for _, by := range []struct {
+			caller  *peer
+			spaceId string
+			member  string
+		}{
+			{owner, parent.Id, writerId},  // the organization's owner
+			{writer, parent.Id, leaverId}, // a writer of the organization
+			{writer, child.Id, leaverId},  // the child's owner
+		} {
+			base := "/v1/spaces/" + by.spaceId
+			for _, call := range []struct{ method, path, body string }{
+				{http.MethodPost, "/guest-key", ""},
+				{http.MethodDelete, "/guest-key", ""},
+				{http.MethodPost, "/acl/add", string(guestAdd)},
+				{http.MethodPost, "/acl/permissions", toGuest(by.member)},
+				{http.MethodPost, "/acl/accept", string(guestAccept)},
+			} {
+				wantError(t, by.caller, call.method, base+call.path, call.body, http.StatusConflict, "acl.no_guest_role")
+			}
+		}
+
+		notMember(t, outsiderId, leaverId)
+		onNodes, _, ok := childMembersOf(t, owner, child.Id)
+		inParent, _, okParent := roster(t, owner, parent.Id)
+		if !ok || !okParent {
+			t.Fatalf("members unreadable: of the child %v, of the organization %v", ok, okParent)
+		}
+		for id, m := range onNodes {
+			if m.Permission == api.SpacePermissionGuest {
+				t.Errorf("the child holds a guest: %s %+v", id, m)
+			}
+		}
+		for id, m := range inParent {
+			if m.Permission == api.SpacePermissionGuest || id == outsiderId {
+				t.Errorf("the organization holds a guest or the outsider: %s %+v", id, m)
+			}
+		}
+		if !rosterActive(inParent, writerId) || inParent[writerId].Permission != api.SpacePermissionWriter {
+			t.Errorf("the organization's writer after the refused change: %+v", inParent[writerId])
+		}
+		for _, id := range []string{parent.Id, child.Id} {
+			wantError(t, outsider, http.MethodGet, "/v1/spaces/"+id, "", http.StatusNotFound, "space.not_found")
+		}
 	})
 
 	// The parent is a top-level space the outsider does not hold: the
 	// coordinator shows it has no parent, and nothing there changes.
 	t.Run("TopLevelSpaceOfAnotherAccount", func(t *testing.T) {
-		ownerId, writerId := accountId(t, owner.base), accountId(t, writer.base)
 		path := "/v1/children/" + parent.Id
 		wantError(t, outsider, http.MethodDelete, path, "", http.StatusConflict, "space.not_child")
 		for _, member := range []string{ownerId, writerId} {
@@ -606,8 +682,7 @@ func TestE2E_MultipeerChildSpaces_Deleting(t *testing.T) {
 	member := startPeerConf(t, bin, "member of the child", nodeconf)
 	defer member.stop(t)
 
-	var parent api.SpaceInfo
-	mustJSON(t, http.MethodPost, owner.base+"/v1/spaces", `{"name":"Parent"}`, http.StatusCreated, &parent)
+	parent := createOrganization(t, owner, "Parent")
 	joinAs(t, owner, parent.Id, api.SpacePermissionWriter, writer)
 	joinAs(t, owner, parent.Id, api.SpacePermissionReader, member)
 	child := createChild(t, writer, parent.Id, "Child")
