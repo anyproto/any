@@ -19,8 +19,9 @@ import (
 // surface (/v1/debug/p2p) and sync status (p2p / localPeers).
 //
 // Gated behind ANY_E2E_P2P=1: it requires a multicast-capable network
-// interface (CI loopback won't do) and announces the instances on the
-// developer's actual LAN. The space handshake itself still runs
+// interface (CI loopback won't do). The instances announce under the
+// test run's own service type (e2eServiceType), so they meet each other
+// and no other `any` on the LAN. The space handshake itself still runs
 // through staging (invite/join), so the staging fixture is required
 // too — the SDK-level e2e covers the fully-offline variant.
 func TestE2E_MultipeerP2P(t *testing.T) {
@@ -144,7 +145,7 @@ func startPeerOffline(t *testing.T, bin, name, nodeconfPath, mnemonic string) (*
 	dataDir := t.TempDir()
 	addr := freeLoopbackAddr(t)
 	cfgPath := filepath.Join(dataDir, "config.yaml")
-	cfgBody := fmt.Sprintf("network:\n  nodeconfPath: %s\nindex:\n  embedder: none\n", nodeconfPath)
+	cfgBody := peerConfig(nodeconfPath)
 	if err := os.WriteFile(cfgPath, []byte(cfgBody), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -231,5 +232,61 @@ func TestE2E_MultipeerP2PColdRestore(t *testing.T) {
 		return st.P2P == "connected" && st.LocalPeers >= 1 && st.NetworkPeers == 0
 	}) {
 		t.Fatalf("device B: sync-status never showed offline p2p convergence; last=%+v", st)
+	}
+}
+
+// TestE2E_MultipeerP2PLoginWaitsForPeer is the local-only login in the
+// order a second device meets it: device A holds the account but is off
+// when device B logs in. With no node reachable B waits, through a
+// restart, until A comes back on the local network. Then B's login
+// completes from A alone, and from then on B starts with nobody around.
+// Gated like TestE2E_MultipeerP2PColdRestore, which covers what a
+// device then pulls from its peer.
+func TestE2E_MultipeerP2PLoginWaitsForPeer(t *testing.T) {
+	if os.Getenv("ANY_E2E_P2P") == "" {
+		t.Skip("set ANY_E2E_P2P=1 to run the real-mDNS multipeer test")
+	}
+	if testing.Short() {
+		t.Skip("multipeer test takes ~60s; rerun without -short")
+	}
+
+	nodeconfPath := writeDeadNodeconf(t)
+	bin := buildBinary(t)
+
+	// --- Device A creates the account, then goes off. ---
+	devA, created := startPeerOffline(t, bin, "devA", nodeconfPath, "")
+	defer func() { devA.stop(t) }()
+	if created.Mnemonic == "" || created.Login != nil {
+		t.Fatalf("device A: a created account must be open at once: %+v", created)
+	}
+	mustJSON(t, http.MethodPost, devA.base+"/v1/spaces", `{"name":"peer-login"}`, http.StatusCreated, nil)
+	devA.stop(t)
+
+	// --- Device B logs in with nobody to sync from: it waits. ---
+	devB, login := startPeerOffline(t, bin, "devB", nodeconfPath, created.Mnemonic)
+	defer func() { devB.stop(t) }()
+	if login.AccountId != created.AccountId || login.Login == nil {
+		t.Fatalf("device B: a login with no node and no peer must wait: %+v", login)
+	}
+	expectLoginPending(t, devB, created.AccountId, "with device A off")
+	devB.stop(t)
+	bootWithConfig(t, bin, devB, peerConfig(nodeconfPath))
+	expectLoginPending(t, devB, created.AccountId, "after a restart, device A still off")
+
+	// --- Device A comes back: B's login completes from it alone. ---
+	bootWithConfig(t, bin, devA, peerConfig(nodeconfPath))
+	if st := waitForAuthorized(t, devB.base, 3*time.Minute); st.AccountId != created.AccountId {
+		t.Fatalf("device B opened as %+v", st)
+	}
+	if got := loginStateOf(t, devB.dataDir); got != "complete" {
+		t.Fatalf("device B login state = %q, want complete", got)
+	}
+
+	// A completed login needs nobody: B alone, restarted.
+	devA.stop(t)
+	devB.stop(t)
+	bootWithConfig(t, bin, devB, peerConfig(nodeconfPath))
+	if st := waitForAuthorized(t, devB.base, 30*time.Second); st.Login != nil || st.AccountId != created.AccountId {
+		t.Fatalf("device B alone after a restart: %+v", st)
 	}
 }

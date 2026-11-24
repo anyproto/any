@@ -765,6 +765,24 @@ func startServerInit(t *testing.T, bin, addr, dataDir string, withInit bool) *ru
 	return startServerConf(t, bin, addr, dataDir, withInit, absStagingPath(t))
 }
 
+// e2eServiceType is the mDNS service type the servers of this test run
+// announce and browse under: they find each other and no other `any` on
+// the local network.
+var e2eServiceType = fmt.Sprintf("_anye2e%d._tcp", os.Getpid())
+
+// peerConfig is a test server's config.yaml on the network nodeconfAbs
+// describes. embedder: none keeps e2e hermetic — the default "auto"
+// would start the local model download on every boot, and e2e doesn't
+// exercise vector search.
+func peerConfig(nodeconfAbs string) string {
+	return fmt.Sprintf("network:\n  nodeconfPath: %s\nindex:\n  embedder: none\np2p:\n  serviceName: %q\n", nodeconfAbs, e2eServiceType)
+}
+
+// peerConfigNoP2P is peerConfig with the peer-to-peer layer off.
+func peerConfigNoP2P(nodeconfAbs string) string {
+	return fmt.Sprintf("network:\n  nodeconfPath: %s\nindex:\n  embedder: none\np2p:\n  enabled: false\n", nodeconfAbs)
+}
+
 // startServerConf is the fully-parameterised boot: nodeconfAbs picks
 // which network the peer joins (the file-latency benchmark points it
 // at a local-infra nodeconf with fileV2 nodes instead of staging).
@@ -775,10 +793,7 @@ func startServerConf(t *testing.T, bin, addr, dataDir string, withInit bool, nod
 	// won't resolve when the test exec's it from a different working
 	// directory.
 	cfgPath := filepath.Join(dataDir, "config.yaml")
-	// embedder: none keeps e2e hermetic — the default "auto" would start
-	// the local model download on every boot. e2e doesn't exercise vector
-	// search, so FTS-only is fine.
-	cfgBody := fmt.Sprintf("network:\n  nodeconfPath: %s\nindex:\n  embedder: none\n", nodeconfAbs)
+	cfgBody := peerConfig(nodeconfAbs)
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		t.Fatalf("mkdir data: %v", err)
 	}

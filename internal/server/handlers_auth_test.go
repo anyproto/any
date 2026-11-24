@@ -28,6 +28,7 @@ func newUnauthorizedDeps(t *testing.T) *deps {
 	cfg.DataDir = t.TempDir()
 	cfg.Index.Enabled = false // never spawn embedder/model downloads in tests
 	cfg.Network.NodeconfPath = stagingPath
+	cfg.P2P.ServiceName = testServiceType
 	d := &deps{
 		startedAt: time.Now().UTC(),
 		shutdown:  make(chan struct{}, 1),

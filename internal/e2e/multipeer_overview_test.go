@@ -2,7 +2,6 @@ package e2e
 
 import (
 	"encoding/json"
-	"fmt"
 	"maps"
 	"net/http"
 	"os"
@@ -186,7 +185,7 @@ func restartOffline(t *testing.T, bin string, p *peer) (restore func()) {
 			t.Fatalf("move stored nodeconf aside: %v", err)
 		}
 	}
-	bootWithConfig(t, bin, p, fmt.Sprintf("network:\n  nodeconfPath: %s\nindex:\n  embedder: none\np2p:\n  enabled: false\n", deadPath))
+	bootWithConfig(t, bin, p, peerConfigNoP2P(deadPath))
 
 	return func() {
 		t.Helper()
@@ -196,7 +195,7 @@ func restartOffline(t *testing.T, bin string, p *peer) (restore func()) {
 				t.Fatalf("restore stored nodeconf: %v", err)
 			}
 		}
-		bootWithConfig(t, bin, p, fmt.Sprintf("network:\n  nodeconfPath: %s\nindex:\n  embedder: none\n", absStagingPath(t)))
+		bootWithConfig(t, bin, p, peerConfig(absStagingPath(t)))
 	}
 }
 

@@ -52,7 +52,7 @@ func loginStateOf(t *testing.T, dataDir string) string {
 // no local-network discovery: nothing can ever sync.
 func noNetworkConfig(t *testing.T) string {
 	t.Helper()
-	return fmt.Sprintf("network:\n  nodeconfPath: %s\nindex:\n  embedder: none\np2p:\n  enabled: false\n", writeDeadNodeconf(t))
+	return peerConfigNoP2P(writeDeadNodeconf(t))
 }
 
 // startUnauthorized boots an unauthorized server on cfg.
