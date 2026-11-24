@@ -10,10 +10,11 @@ import (
 	"github.com/anyproto/any/internal/api"
 )
 
-// SpaceCreate creates a space (POST /v1/spaces → Service.Create), or a
-// child of req.ParentSpaceId when that is set (Service.CreateChild).
-// Creation is local; the network accepts a child when it is first
-// pushed, and SpaceInfo.Refusal names a check it failed.
+// SpaceCreate creates a space of the type req.SpaceType names (POST
+// /v1/spaces → Service.Create), or a child of the organization
+// req.ParentSpaceId when that is set (Service.CreateChild). Creation is
+// local; the network accepts a child when it is first pushed, and
+// SpaceInfo.Refusal names a check it failed.
 func (c *Client) SpaceCreate(ctx context.Context, req api.SpaceCreateRequest) (*api.SpaceInfo, error) {
 	var out api.SpaceInfo
 	if err := c.do(ctx, http.MethodPost, "/v1/spaces", req, &out); err != nil {

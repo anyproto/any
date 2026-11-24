@@ -27,14 +27,14 @@ func newSpaceCmd() *cobra.Command {
 	return cmd
 }
 
-// newSpaceCreateCmd: `any space create [--parent <spaceId>]` — POST
-// /v1/spaces (Service.Create; Service.CreateChild with --parent).
-// Prints the new space's SpaceInfo.
+// newSpaceCreateCmd: `any space create [--type T] [--parent <spaceId>]`
+// — POST /v1/spaces (Service.Create; Service.CreateChild with
+// --parent). Prints the new space's SpaceInfo.
 func newSpaceCreateCmd() *cobra.Command {
 	var req api.SpaceCreateRequest
 	cmd := &cobra.Command{
-		Use:   "create [--name N] [--description D] [--icon-cid CID] [--parent <spaceId>]",
-		Short: "create a space; --parent creates it as a child of that space",
+		Use:   "create [--name N] [--description D] [--icon-cid CID] [--type T] [--parent <spaceId>]",
+		Short: "create a space; --type any.organization creates an organization, --parent a child of one",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cl := newClient(flags.Timeout)
@@ -48,7 +48,8 @@ func newSpaceCreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&req.Name, "name", "", "display name")
 	cmd.Flags().StringVar(&req.Description, "description", "", "description")
 	cmd.Flags().StringVar(&req.IconCID, "icon-cid", "", "icon CID")
-	cmd.Flags().StringVar(&req.ParentSpaceId, "parent", "", "create the space as a child of this space (writer or above in it)")
+	cmd.Flags().StringVar(&req.SpaceType, "type", "", "space type: any.space (the default) or any.organization, a space that can have child spaces")
+	cmd.Flags().StringVar(&req.ParentSpaceId, "parent", "", "create the space as a child of this organization (writer or above in it)")
 	return cmd
 }
 

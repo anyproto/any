@@ -3830,10 +3830,11 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "parentSpaceId": {
-                        "description": "ParentSpaceId creates the space as a child of that space, which\nthe account holds as a writer, an admin or the owner.",
+                        "description": "ParentSpaceId creates the space as a child of that organization,\nwhich the account holds as a writer, an admin or the owner.",
                         "type": "string"
                     },
                     "spaceType": {
+                        "description": "SpaceType is the type of the space: \"any.space\", also when empty,\nor \"any.organization\", a space that can have child spaces. With\nParentSpaceId it is \"any.organization.space\" or empty.",
                         "type": "string"
                     }
                 },
@@ -5449,7 +5450,7 @@ const docTemplate = `{
                                 }
                             }
                         },
-                        "description": "space.not_child — the account's space list shows the space has no parent, or the coordinator shows an active regular top-level space of another account; space.parent_not_available — the coordinator cannot read the ACL of the child's parent"
+                        "description": "space.not_child — the account's space list shows the space has no parent, or the coordinator shows an active top-level space of another account; space.parent_not_available — the coordinator cannot read the ACL of the child's parent"
                     },
                     "503": {
                         "content": {
@@ -8080,7 +8081,7 @@ const docTemplate = `{
                 ]
             },
             "post": {
-                "description": "With parentSpaceId the space is created as a child of that space. Creation is local either way; the network accepts a child when it is first pushed, and SpaceInfo.refusal names a check it failed.",
+                "description": "spaceType names the type of the space: any.space, also when empty, or any.organization, a space that can have child spaces. With parentSpaceId the space is created as a child of that organization, of type any.organization.space. Creation is local either way; the network accepts a child when it is first pushed, and SpaceInfo.refusal names a check it failed.",
                 "requestBody": {
                     "content": {
                         "application/json": {
@@ -8120,7 +8121,7 @@ const docTemplate = `{
                                 }
                             }
                         },
-                        "description": "request.invalid_field — spaceType is not any.space, or parentSpaceId is not a space id"
+                        "description": "request.invalid_field — spaceType is not any.space or any.organization, or with parentSpaceId not any.organization.space; parentSpaceId is not a space id"
                     },
                     "404": {
                         "content": {
@@ -8140,7 +8141,7 @@ const docTemplate = `{
                                 }
                             }
                         },
-                        "description": "space.parent_invalid — the parent cannot have children; space.deleted, space.not_accepted — the parent is not an accepted space of the account"
+                        "description": "space.parent_invalid — the parent is not an organization; space.deleted, space.not_accepted — the parent is not an accepted space of the account"
                     },
                     "500": {
                         "content": {
@@ -8311,7 +8312,7 @@ const docTemplate = `{
                                 }
                             }
                         },
-                        "description": "space.deleted — the space was deleted on this account (any token); space.already_member — guest token for a space this account already tracks; acl.not_parent_member — a child space, and this account is not a member of its parent"
+                        "description": "space.deleted — the space was deleted on this account (any token); space.already_member — guest token for a space this account already tracks; acl.not_parent_member — a child space, and this account is not a member of its parent; space.parent_not_available — a child space, and the coordinator cannot read the ACL of its parent"
                     },
                     "410": {
                         "content": {
@@ -8771,7 +8772,7 @@ const docTemplate = `{
                                 }
                             }
                         },
-                        "description": "acl.limit_reached — the owner's plan is at its limit of readers or writers for the space; acl.not_parent_member — in a child space, the joiner is not a member of the parent"
+                        "description": "acl.limit_reached — the owner's plan is at its limit of readers or writers for the space; acl.not_parent_member — in a child space, the joiner is not a member of the parent; space.parent_not_available — in a child space, the coordinator cannot read the ACL of the parent"
                     },
                     "500": {
                         "content": {
@@ -8855,7 +8856,7 @@ const docTemplate = `{
                                 }
                             }
                         },
-                        "description": "acl.limit_reached — the owner's plan is at its limit of shared spaces, or of readers or writers for the space; acl.not_parent_member — in a child space, an added account is not a member of the parent; space.derived_unshareable — a derived space; space.not_pushed — the space's first push has not landed; space.parent_not_available, space.parent_invalid, space.child_limit_reached — a child the coordinator refused"
+                        "description": "acl.limit_reached — the owner's plan is at its limit of shared spaces, or of readers or writers for the space; acl.not_parent_member — in a child space, an added account is not a member of the parent; space.derived_unshareable — a derived space; space.not_pushed — the space's first push has not landed; space.parent_not_available, space.parent_invalid, space.child_limit_reached — a child the coordinator refused; space.parent_not_available — also in a child space, when the coordinator cannot read the ACL of the parent"
                     },
                     "500": {
                         "content": {
@@ -9058,7 +9059,7 @@ const docTemplate = `{
                                 }
                             }
                         },
-                        "description": "acl.not_parent_member — in a child space, the new owner is not a member of the parent"
+                        "description": "acl.not_parent_member — in a child space, the new owner is not a member of the parent; space.parent_not_available — in a child space, the coordinator cannot read the ACL of the parent"
                     },
                     "500": {
                         "content": {
@@ -9880,7 +9881,7 @@ const docTemplate = `{
         },
         "/spaces/{spaceId}/children": {
             "get": {
-                "description": "Every child of the space as the coordinator holds it, the ones this account is no member of included. For an admin or the owner of the parent; a member finds the children it belongs to in the space list, by SpaceInfo.parentSpaceId. Needs the network.",
+                "description": "Every child of the space as the coordinator holds it, the ones this account is no member of included. For an admin or the owner of the parent; a member finds the children it belongs to in the space list, by SpaceInfo.parentSpaceId. The type of the space is not checked: an admin or the owner of a space that is not an organization gets an empty list, so an empty list does not say the space can have children; SpaceInfo.type does. Needs the network.",
                 "parameters": [
                     {
                         "description": "Space ID of the parent",

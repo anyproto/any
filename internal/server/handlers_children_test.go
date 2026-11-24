@@ -125,6 +125,24 @@ func newOfflineServer(t *testing.T) (*deps, *echo.Echo) {
 	return d, e
 }
 
+// createOrganization creates an organization, the space children are
+// created under, and returns its id.
+func createOrganization(t *testing.T, e http.Handler, name string) string {
+	t.Helper()
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces", fmt.Sprintf(`{"name":%q,"spaceType":%q}`, name, space.SpaceTypeOrganization))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create organization %s: %d %s", name, rec.Code, rec.Body.String())
+	}
+	var sp api.SpaceInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &sp); err != nil {
+		t.Fatal(err)
+	}
+	if sp.Type != space.SpaceTypeOrganization || sp.SpaceType != space.SpaceTypeOrganization || sp.ParentSpaceId != "" {
+		t.Fatalf("organization %s = %+v, want a top-level space of type %s", name, sp, space.SpaceTypeOrganization)
+	}
+	return sp.Id
+}
+
 // createChild creates a child of parentId and returns its SpaceInfo.
 func createChild(t *testing.T, e http.Handler, parentId, name string) api.SpaceInfo {
 	t.Helper()
@@ -147,23 +165,26 @@ func expectError(t *testing.T, what string, rec *httptest.ResponseRecorder, want
 	}
 }
 
-// POST /v1/spaces with a parentSpaceId creates a child with no network,
-// and refuses a parent the account's own space list rules out.
+// POST /v1/spaces with a parentSpaceId creates a child of an
+// organization with no network, of the one type a child has, and
+// refuses a parent the account's own space list rules out.
 func TestServer_ChildSpace_Create(t *testing.T) {
 	d, e := newOfflineServer(t)
-	parent := createSpace(t, e, "parent")
+	parent := createOrganization(t, e, "parent")
 
 	child := createChild(t, e, parent, "child")
-	if child.ParentSpaceId != parent || child.Status != api.SpaceStatusActive || child.SpaceType != space.SpaceTypeAny {
-		t.Fatalf("child = %+v, want an active any.space under %s", child, parent)
+	if child.ParentSpaceId != parent || child.Status != api.SpaceStatusActive ||
+		child.Type != space.SpaceTypeOrganizationSpace || child.SpaceType != space.SpaceTypeOrganizationSpace {
+		t.Fatalf("child = %+v, want an active %s under %s", child, space.SpaceTypeOrganizationSpace, parent)
 	}
 	if child.Refusal != "" {
 		t.Errorf("a child no coordinator was asked about reads refusal %q", child.Refusal)
 	}
-	rec := doJSON(t, e, http.MethodPost, "/v1/spaces", fmt.Sprintf(`{"parentSpaceId":%q,"spaceType":"any.space"}`, parent))
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces", fmt.Sprintf(`{"parentSpaceId":%q,"spaceType":%q}`, parent, space.SpaceTypeOrganizationSpace))
 	if rec.Code != http.StatusCreated {
-		t.Errorf("a child with spaceType any.space: %d %s", rec.Code, rec.Body.String())
+		t.Errorf("a child with its own spaceType: %d %s", rec.Code, rec.Body.String())
 	}
+	plain := createSpace(t, e, "plain")
 
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/derived/bao", "")
 	if rec.Code != http.StatusOK && rec.Code != http.StatusCreated {
@@ -173,7 +194,7 @@ func TestServer_ChildSpace_Create(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &derived); err != nil {
 		t.Fatal(err)
 	}
-	gone := createSpace(t, e, "gone")
+	gone := createOrganization(t, e, "gone")
 	if rec := doJSON(t, e, http.MethodDelete, "/v1/spaces/"+gone, ""); rec.Code != http.StatusNoContent {
 		t.Fatalf("delete %s: %d %s", gone, rec.Code, rec.Body.String())
 	}
@@ -185,6 +206,7 @@ func TestServer_ChildSpace_Create(t *testing.T) {
 		wantHTTP int
 		wantCode string
 	}{
+		{"a space of type any.space as the parent", plain, http.StatusConflict, "space.parent_invalid"},
 		{"a child as the parent", child.Id, http.StatusConflict, "space.parent_invalid"},
 		{"a derived space as the parent", derived.Id, http.StatusConflict, "space.parent_invalid"},
 		{"the tech space as the parent", d.sdk.TechSpaceId(), http.StatusConflict, "space.parent_invalid"},
@@ -202,8 +224,11 @@ func TestServer_ChildSpace_Create(t *testing.T) {
 		}
 	}
 
-	rec = doJSON(t, e, http.MethodPost, "/v1/spaces", fmt.Sprintf(`{"parentSpaceId":%q,"spaceType":"any.onetoone"}`, parent))
-	expectError(t, "another space type", rec, http.StatusBadRequest, "request.invalid_field")
+	// A child takes no other type, the parent's and any.space included.
+	for _, spaceType := range []string{space.SpaceTypeAny, space.SpaceTypeOrganization, space.SpaceTypeOneToOne} {
+		rec = doJSON(t, e, http.MethodPost, "/v1/spaces", fmt.Sprintf(`{"parentSpaceId":%q,"spaceType":%q}`, parent, spaceType))
+		expectError(t, "a child with spaceType "+spaceType, rec, http.StatusBadRequest, "request.invalid_field")
+	}
 }
 
 // unknownSpaceId returns a well-formed space id no account holds: the
@@ -218,7 +243,7 @@ func unknownSpaceId(spaceId string) string {
 // is 404.
 func TestServer_ChildSpace_Create_MalformedParent(t *testing.T) {
 	_, e := newOfflineServer(t)
-	parent := createSpace(t, e, "parent")
+	parent := createOrganization(t, e, "parent")
 	contentId := parent[:strings.LastIndexByte(parent, '.')]
 
 	for id, malformed := range map[string]bool{
@@ -256,7 +281,7 @@ func TestServer_ChildSpace_Create_MalformedParent(t *testing.T) {
 // space-list rows and their stream.
 func TestServer_ChildSpace_ParentOnEveryRead(t *testing.T) {
 	d, e := newOfflineServer(t)
-	parent := createSpace(t, e, "parent")
+	parent := createOrganization(t, e, "parent")
 	child := createChild(t, e, parent, "child")
 
 	var got api.SpaceInfo
@@ -372,12 +397,12 @@ func TestServer_ChildSpace_ParentOnEveryRead(t *testing.T) {
 	}
 }
 
-// A space with a child in the account's own list is not deleted, with
-// no network; a child is deleted like any space, and its parent after
-// it.
+// An organization with a child in the account's own list is not
+// deleted, with no network; a child is deleted like any space, and its
+// parent after it.
 func TestServer_ChildSpace_DeleteParentAfterChildren(t *testing.T) {
 	_, e := newOfflineServer(t)
-	parent := createSpace(t, e, "parent")
+	parent := createOrganization(t, e, "parent")
 	child := createChild(t, e, parent, "child")
 
 	rec := doJSON(t, e, http.MethodDelete, "/v1/spaces/"+parent, "")
@@ -401,7 +426,8 @@ func TestServer_ChildSpace_DeleteParentAfterChildren(t *testing.T) {
 // tech space, and a child of the account's own parent no node holds.
 func TestServer_ChildSpace_RetryPush(t *testing.T) {
 	d, e := newOfflineServer(t)
-	parent := createSpace(t, e, "parent")
+	parent := createOrganization(t, e, "parent")
+	plain := createSpace(t, e, "plain")
 	child := createChild(t, e, parent, "child")
 	gone := createChild(t, e, parent, "gone")
 	if rec := doJSON(t, e, http.MethodDelete, "/v1/spaces/"+gone.Id, ""); rec.Code != http.StatusNoContent {
@@ -416,7 +442,8 @@ func TestServer_ChildSpace_RetryPush(t *testing.T) {
 	}{
 		{"a space the account does not hold", unknownSpaceId(parent), http.StatusNotFound, "space.not_found"},
 		{"not a space id", "bafyunknown.space", http.StatusBadRequest, "request.invalid_field"},
-		{"a top-level space", parent, http.StatusConflict, "space.not_child"},
+		{"an organization", parent, http.StatusConflict, "space.not_child"},
+		{"a space of type any.space", plain, http.StatusConflict, "space.not_child"},
 		{"a deleted child", gone.Id, http.StatusConflict, "space.deleted"},
 		{"the tech space", d.sdk.TechSpaceId(), http.StatusMethodNotAllowed, "space.unsupported"},
 		{"a child of an own parent no node holds", child.Id, http.StatusConflict, "space.parent_not_available"},
@@ -434,10 +461,13 @@ func TestServer_ChildSpace_RetryPush(t *testing.T) {
 
 // GET …/children is the coordinator's answer and nothing else: with no
 // coordinator in reach it is 503, also for the account's own parent.
+// The type of the space is not checked: a space of type any.space and a
+// child are asked about like an organization.
 func TestServer_ChildSpace_Children(t *testing.T) {
 	d, e := newOfflineServer(t)
-	parent := createSpace(t, e, "parent")
-	createChild(t, e, parent, "child")
+	parent := createOrganization(t, e, "parent")
+	child := createChild(t, e, parent, "child")
+	plain := createSpace(t, e, "plain")
 
 	for _, tc := range []struct {
 		name     string
@@ -446,6 +476,8 @@ func TestServer_ChildSpace_Children(t *testing.T) {
 		wantCode string
 	}{
 		{"no coordinator in reach", parent, http.StatusServiceUnavailable, "network.unreachable"},
+		{"a space of type any.space", plain, http.StatusServiceUnavailable, "network.unreachable"},
+		{"a child", child.Id, http.StatusServiceUnavailable, "network.unreachable"},
 		{"not a space id", "not-a-space-id", http.StatusBadRequest, "request.invalid_field"},
 		{"the tech space", d.sdk.TechSpaceId(), http.StatusMethodNotAllowed, "space.unsupported"},
 	} {
@@ -567,7 +599,8 @@ func newIdentity(t *testing.T) string {
 // in reach answers 503 and changes nothing.
 func TestServer_ChildSpace_ParentSide(t *testing.T) {
 	d, e := newOfflineServer(t)
-	parent := createSpace(t, e, "parent")
+	parent := createOrganization(t, e, "parent")
+	plain := createSpace(t, e, "plain")
 	child := createChild(t, e, parent, "child")
 	member := newIdentity(t)
 	remove := fmt.Sprintf(`{"identities":[%q]}`, member)
@@ -589,7 +622,8 @@ func TestServer_ChildSpace_ParentSide(t *testing.T) {
 			wantCode string
 		}{
 			{"no network in reach", child.Id, http.StatusServiceUnavailable, "network.unreachable"},
-			{"a top-level space", parent, http.StatusConflict, "space.not_child"},
+			{"an organization", parent, http.StatusConflict, "space.not_child"},
+			{"a space of type any.space", plain, http.StatusConflict, "space.not_child"},
 			{"the tech space", d.sdk.TechSpaceId(), http.StatusConflict, "space.not_child"},
 			{"not a space id", "not-a-space-id", http.StatusBadRequest, "request.invalid_field"},
 		} {
@@ -626,7 +660,7 @@ func TestServer_ChildSpace_ParentSide(t *testing.T) {
 // server refuses any other value with a 400 before the ACL is asked.
 func TestServer_Ownership_OldOwnerPerm(t *testing.T) {
 	_, e := newOfflineServer(t)
-	parent := createSpace(t, e, "parent")
+	parent := createOrganization(t, e, "parent")
 	child := createChild(t, e, parent, "child")
 	member := newIdentity(t)
 
@@ -666,7 +700,7 @@ func TestServer_Ownership_OldOwnerPerm(t *testing.T) {
 // removal routes: 400 with the list named, before the ACL is asked.
 func TestServer_ACLRemove_DuplicateIdentities(t *testing.T) {
 	_, e := newOfflineServer(t)
-	parent := createSpace(t, e, "parent")
+	parent := createOrganization(t, e, "parent")
 	child := createChild(t, e, parent, "child")
 	twice := newIdentity(t)
 	body := fmt.Sprintf(`{"identities":[%q,%q,%q]}`, twice, newIdentity(t), twice)
@@ -777,7 +811,7 @@ func TestAclOpError_InsufficientPermissions(t *testing.T) {
 // deleted or does not hold is no space of the account.
 func TestSpaceChildren_UnknownToTheCoordinator(t *testing.T) {
 	d, e := newOfflineServer(t)
-	parent := createSpace(t, e, "parent")
+	parent := createOrganization(t, e, "parent")
 	deleted := createSpace(t, e, "deleted")
 	if rec := doJSON(t, e, http.MethodDelete, "/v1/spaces/"+deleted, ""); rec.Code != http.StatusNoContent {
 		t.Fatalf("delete a space: %d %s", rec.Code, rec.Body.String())
@@ -804,7 +838,7 @@ func TestSpaceChildren_UnknownToTheCoordinator(t *testing.T) {
 
 // What the coordinator answers for a space it knows maps to a code: the
 // children list of a parent whose ACL is not on the network yet, and
-// the delete of an active regular top-level space of another account.
+// the delete of an active top-level space of another account.
 // On such a space the two ACL routes answer for its ACL. The errors are
 // shaped as the SDK returns them; the network's refusal of a record
 // arrives as text only.

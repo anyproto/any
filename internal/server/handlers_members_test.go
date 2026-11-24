@@ -290,7 +290,7 @@ func TestServer_MemberGet_BadIdentity(t *testing.T) {
 // nobody was removed from without one reads false.
 func TestServer_Members_RotationPending(t *testing.T) {
 	_, e := newOfflineServer(t)
-	parent := createSpace(t, e, "parent")
+	parent := createOrganization(t, e, "parent")
 	child := createChild(t, e, parent, "child")
 
 	for _, id := range []string{parent, child.Id} {

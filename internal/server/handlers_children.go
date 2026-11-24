@@ -13,7 +13,7 @@ import (
 )
 
 // registerChildSpaceRoutes registers the routes of child spaces: a
-// space created under a parent space.
+// space created under a parent space, an organization.
 func registerChildSpaceRoutes(g *echo.Group, d *deps) {
 	g.POST("/spaces/:spaceId/retry-push", d.spaceRetryPush)
 	g.GET("/spaces/:spaceId/children", d.spaceChildren)
@@ -31,7 +31,7 @@ func registerChildSpaceRoutes(g *echo.Group, d *deps) {
 // stored, and no row is created for a listed child.
 //
 //	@Summary		List the child spaces of a parent space
-//	@Description	Every child of the space as the coordinator holds it, the ones this account is no member of included. For an admin or the owner of the parent; a member finds the children it belongs to in the space list, by SpaceInfo.parentSpaceId. Needs the network.
+//	@Description	Every child of the space as the coordinator holds it, the ones this account is no member of included. For an admin or the owner of the parent; a member finds the children it belongs to in the space list, by SpaceInfo.parentSpaceId. The type of the space is not checked: an admin or the owner of a space that is not an organization gets an empty list, so an empty list does not say the space can have children; SpaceInfo.type does. Needs the network.
 //	@Tags			spaces
 //	@Produce		json
 //	@Param			spaceId	path		string	true	"Space ID of the parent"
@@ -245,7 +245,7 @@ func (d *deps) childChangeOwner(c echo.Context) error {
 //	@Failure		400	{object}	api.ErrorEnvelope	"request.invalid_field — childId is not a space id"
 //	@Failure		403	{object}	api.ErrorEnvelope	"space.parent_permission_denied — the account is neither the owner of the parent nor the child's own owner"
 //	@Failure		404	{object}	api.ErrorEnvelope	"space.not_found — the coordinator does not know the space"
-//	@Failure		409	{object}	api.ErrorEnvelope	"space.not_child — the account's space list shows the space has no parent, or the coordinator shows an active regular top-level space of another account; space.parent_not_available — the coordinator cannot read the ACL of the child's parent"
+//	@Failure		409	{object}	api.ErrorEnvelope	"space.not_child — the account's space list shows the space has no parent, or the coordinator shows an active top-level space of another account; space.parent_not_available — the coordinator cannot read the ACL of the child's parent"
 //	@Failure		503	{object}	api.ErrorEnvelope	"network.unreachable — the coordinator could not be reached; nothing changed"
 //	@Router			/children/{childId} [delete]
 func (d *deps) childDelete(c echo.Context) error {
@@ -317,10 +317,10 @@ func childSpaceError(c echo.Context, err error, details map[string]any) (error, 
 			"the network could not be reached; nothing was changed", details), true
 	case errors.Is(err, space.ErrParentSpaceNotAvailable):
 		return writeError(c, http.StatusConflict, "space.parent_not_available",
-			"the parent space does not exist on the network or is deleted", details), true
+			"the parent space does not exist on the network or is deleted, or the coordinator cannot read its ACL", details), true
 	case errors.Is(err, space.ErrParentSpaceInvalid):
 		return writeError(c, http.StatusConflict, "space.parent_invalid",
-			"the parent is not a regular top-level space: a child, derived, one-to-one or tech space has no children", details), true
+			"the parent is not an organization: only a space of type any.organization has child spaces", details), true
 	case errors.Is(err, space.ErrParentPermissionDenied):
 		return writeError(c, http.StatusForbidden, "space.parent_permission_denied",
 			"this account's role in the parent space does not allow the operation", details), true

@@ -9,9 +9,12 @@ type SpaceCreateRequest struct {
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
 	IconCID     string `json:"iconCid,omitempty"`
-	SpaceType   string `json:"spaceType,omitempty"`
-	// ParentSpaceId creates the space as a child of that space, which
-	// the account holds as a writer, an admin or the owner.
+	// SpaceType is the type of the space: "any.space", also when empty,
+	// or "any.organization", a space that can have child spaces. With
+	// ParentSpaceId it is "any.organization.space" or empty.
+	SpaceType string `json:"spaceType,omitempty"`
+	// ParentSpaceId creates the space as a child of that organization,
+	// which the account holds as a writer, an admin or the owner.
 	ParentSpaceId string `json:"parentSpaceId,omitempty"`
 }
 
@@ -57,8 +60,10 @@ type SpaceRegisterIncomingRequest struct {
 //
 // SpaceType is the app-level classification tag (read from the in-space
 // spaceIndex), distinct from the on-wire header Type: 1-1 spaces carry
-// "any.onetoone", created spaces "any.space". Use it to filter direct chats vs regular
-// spaces client-side. Author is the space owner's
+// "any.onetoone", created spaces their header type, derived spaces a
+// free-text tag. Use it to filter direct chats vs regular spaces
+// client-side; Type tells an organization or one of its child spaces.
+// Author is the space owner's
 // account identity, resolved best-effort from the ACL (empty when the ACL
 // isn't loadable).
 // Settings is the account-private, client-owned per-space settings
@@ -249,8 +254,8 @@ const (
 	// SpaceRefusalParentNotAvailable: the parent does not exist on the
 	// network or is deleted.
 	SpaceRefusalParentNotAvailable = "parent_not_available"
-	// SpaceRefusalParentInvalid: the parent is not a regular top-level
-	// space. Final.
+	// SpaceRefusalParentInvalid: the parent is not an organization.
+	// Final.
 	SpaceRefusalParentInvalid = "parent_invalid"
 	// SpaceRefusalParentPermissionDenied: the account is below writer
 	// in the parent.

@@ -240,7 +240,7 @@ func (d *deps) guestKeyRevoke(c echo.Context) error {
 //	@Success	201		{object}	api.SpaceInfo			"Joined immediately"
 //	@Success	202		{object}	api.SpaceInfo			"Join pending owner approval (member) or space load pending (guest)"
 //	@Failure	400		{object}	api.ErrorEnvelope
-//	@Failure	409		{object}	api.ErrorEnvelope	"space.deleted — the space was deleted on this account (any token); space.already_member — guest token for a space this account already tracks; acl.not_parent_member — a child space, and this account is not a member of its parent"
+//	@Failure	409		{object}	api.ErrorEnvelope	"space.deleted — the space was deleted on this account (any token); space.already_member — guest token for a space this account already tracks; acl.not_parent_member — a child space, and this account is not a member of its parent; space.parent_not_available — a child space, and the coordinator cannot read the ACL of its parent"
 //	@Failure	410		{object}	api.ErrorEnvelope	"invite.revoked — the invite was revoked or no longer exists"
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/join [post]
