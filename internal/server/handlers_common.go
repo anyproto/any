@@ -512,16 +512,17 @@ func crdtVersionDetails(err error, details map[string]any) map[string]any {
 	return out
 }
 
-// unknownDatasetError maps the record-write refusals the SDK reports
-// without a sentinel to dataset.unknown, never a server fault: an
-// upsert that names no records dataset ("unknown dataset" — a mistyped
-// name or a module's collection), a dataset the object's controller
-// has no handler for, and the SDK-internal guard. STOPGAP: matched on
-// message text until the SDK exports sentinels for them.
+// unknownDatasetError maps the remaining record-write refusals to
+// dataset.unknown, never a server fault: a dataset the object's
+// controller has no handler for, an upsert that names no records
+// dataset (a mistyped name or a module's collection) and the
+// SDK-internal guard. STOPGAP: the last two are matched on message
+// text ("unknown dataset", "SDK-internal") until the SDK exports
+// sentinels for them.
 func unknownDatasetError(c echo.Context, err error, details map[string]any) (error, bool) {
 	msg := err.Error()
-	if !strings.Contains(msg, "unknown dataset") &&
-		!strings.Contains(msg, "no handler for dataset") &&
+	if !errors.Is(err, handler.ErrUnknownDataset) &&
+		!strings.Contains(msg, "unknown dataset") &&
 		!strings.Contains(msg, "SDK-internal") {
 		return nil, false
 	}

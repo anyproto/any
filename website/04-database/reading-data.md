@@ -54,7 +54,7 @@ curl -X POST http://127.0.0.1:2046/v1/spaces/$SPACE/datasets/query \
 }
 ```
 
-The vocabulary is closed. An unknown key — `"filters"`, say — answers `400 request.unknown_field` listing the accepted set rather than silently querying the whole space. A serialised nil `objectId` (`"null"`, `"undefined"`) is `400 object.id_required`. A per-object read of an object the space does not have answers `404 object.not_found`; the cross-object query just returns zero rows. A per-object read of a dataset the space does not have answers `400 dataset.unknown`; one the space has reads as zero rows on an object with no records of it. A shared-dataset read of a dataset that is not declared `shared`, or one the space does not hold, is `400 dataset.not_shared`.
+The vocabulary is closed. An unknown key — `"filters"`, say — answers `400 request.unknown_field` listing the accepted set rather than silently querying the whole space. A serialised nil `objectId` (`"null"`, `"undefined"`) is `400 object.id_required`. A per-object read of an object the space does not have answers `404 object.not_found`; the cross-object query just returns zero rows. On an object the space has, a per-object read of a dataset the space does not have — a mistyped name, or one whose declaring part has not arrived or was removed — answers `400 dataset.unknown`; one the space has reads as zero rows on an object with no records of it. A shared-dataset read of a dataset that is not declared `shared`, or one the space does not hold, is `400 dataset.not_shared`.
 
 Response:
 

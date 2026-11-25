@@ -52,9 +52,11 @@ func TestServer_ReadUnknownDataset(t *testing.T) {
 
 	reads := []struct{ route, extra string }{
 		{"/query", ""},
+		{"/query", `, "includeDeleted": true, "includeTotal": true`},
 		{"/query/subscribe", ""},
 		{"/query/subscribe", `, "sort": ["id"], "limit": 5`},
 		{"/aggregate", `, "pipeline": [{"$count": "n"}]`},
+		{"/aggregate", `, "pipeline": [{"$count": "n"}], "explain": true`},
 	}
 	body := func(objectId, dataset, extra string) string {
 		return fmt.Sprintf(`{"objectId": %q, "dataset": %q%s}`, objectId, dataset, extra)
@@ -83,6 +85,18 @@ func TestServer_ReadUnknownDataset(t *testing.T) {
 				t.Errorf("%s: details.objectId = %q, want %q (%s)", name, got, objectId, rec.Body.String())
 			}
 		}
+	}
+
+	// The object comes first: one the space does not have is not found,
+	// whatever the dataset.
+	const noObject = "bafyreigh2akiscaildcqabsyg3dfr6chu3fgpregiymsck7e7aqa4s52zy"
+	for _, r := range []struct{ route, extra string }{reads[0], reads[4]} {
+		rec := doJSON(t, e, http.MethodPost, base+r.route, body(noObject, "no-such-dataset", r.extra))
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("unknown object %s: status=%d, want 404: %s", r.route, rec.Code, rec.Body.String())
+			continue
+		}
+		assertErrorCode(t, rec, "object.not_found")
 	}
 
 	for name, oid := range map[string]string{"no records": objectId, "another type": foreign} {

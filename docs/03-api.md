@@ -2380,8 +2380,6 @@ Three query scopes:
   Reads one of an object's own datasets (`objectId` and `dataset`
   required): a definition object's `properties`, `editor_blocks`,
   `chat_messages`, a runtime `<typeId>_<key>` storage collection, etc.
-  A `dataset` the space does not have is `400 dataset.unknown`; one it
-  has reads as empty on an object with no records of it.
 - `POST /v1/spaces/:spaceId/datasets/query` (+ `/subscribe`) — **a
   shared dataset across its objects** (`dataset` required, no
   `objectId`): every object's records of one runtime dataset declared
@@ -2447,6 +2445,15 @@ The cross-object `objects/query` has no such failure mode: a filter on
 a dead id just returns zero rows. Search hits can briefly outlive their
 object (the index evicts asynchronously), so a client following a hit
 into `/query` must treat 404 as "stale hit", not an error.
+
+On an object the space has, `…/query`, `…/query/subscribe` and
+`…/aggregate` answer `400 dataset.unknown` for a `dataset` the space
+does not have: a mistyped name, or one whose declaring part is not on
+this device — not arrived yet, or removed. A dataset the space has
+reads as empty on an object with no records of it. A client that
+expects the part to arrive retries when the space next reports
+`synced` (§ Sync status); one following a search hit treats the answer
+as a stale hit.
 
 #### Snapshot request body (shared by both `…/query` and `…/query/subscribe`)
 
