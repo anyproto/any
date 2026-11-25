@@ -7,7 +7,6 @@ import (
 	"mime"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/valyala/fastjson"
@@ -159,8 +158,10 @@ func (d *deps) fileGet(c echo.Context) error {
 // Content-Type from the stored mime (octet-stream fallback — sniffing
 // happens at attach, never here), Content-Disposition inline with the stored name, and full
 // Range/206 support via http.ServeContent (the SDK reader is
-// seekable). Content not yet local streams in on demand; a download in
-// flight at teardown is cut by the gate's deadline (routes.go), even
+// seekable). Content not yet local streams in on demand; when the first
+// byte of the requested range cannot be had, the answer is the error
+// (409 file.not_available), never a 2xx with an empty body. A download
+// in flight at teardown is cut by the gate's deadline (routes.go), even
 // when the client stopped reading.
 //
 // `?variant=` selects an alternate representation (a sibling file
@@ -175,6 +176,7 @@ func (d *deps) fileGet(c echo.Context) error {
 //	@Success	200
 //	@Success	206
 //	@Failure	404	{object}	api.ErrorEnvelope
+//	@Failure	409	{object}	api.ErrorEnvelope
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/files/{fileId}/content [get]
 func (d *deps) fileContent(c echo.Context) error {
@@ -216,9 +218,9 @@ func (d *deps) fileContent(c echo.Context) error {
 	if info.Name != "" {
 		h.Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": info.Name}))
 	}
-	// Zero modtime: ServeContent skips Last-Modified/If-Modified-Since
-	// handling — CRDT rows have no meaningful HTTP mtime.
-	http.ServeContent(c.Response(), c.Request(), "", time.Time{}, r)
+	if err = serveContent(c, r); err != nil {
+		return fileError(c, err, details)
+	}
 	return nil
 }
 
