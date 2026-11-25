@@ -90,10 +90,11 @@ func (c *Client) SpaceDerivedList(ctx context.Context) (*api.DerivedSpaceListRes
 	return &out, nil
 }
 
-// SpaceDerivedCreate materializes a well-known derived space by its
-// registry name (POST /v1/spaces/derived/:name → Service.Derive).
-// Idempotent — repeat calls land on the same space.
-func (c *Client) SpaceDerivedCreate(ctx context.Context, name string) (*api.SpaceInfo, error) {
+// SpaceDerivedOpen opens a well-known derived space this device holds
+// a row for, by its registry name (POST /v1/spaces/derived/:name). It
+// creates none: without a row the answer is 404
+// space.derived_not_created.
+func (c *Client) SpaceDerivedOpen(ctx context.Context, name string) (*api.SpaceInfo, error) {
 	var out api.SpaceInfo
 	path := fmt.Sprintf("/v1/spaces/derived/%s", url.PathEscape(name))
 	if err := c.do(ctx, http.MethodPost, path, nil, &out); err != nil {

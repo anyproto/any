@@ -48,7 +48,7 @@ type deps struct {
 	derived []resolvedDerivedSpace
 
 	// installs drives the per-space bundle installs and carries their
-	// loser verdicts across requests (derivedsetup.go). Created lazily
+	// loser verdicts across requests. Created lazily
 	// via bundleResolver() — it has no engine/SDK dependency, so every
 	// deps construction path gets one with no explicit wiring.
 	installsOnce sync.Once
@@ -122,7 +122,8 @@ type deps struct {
 	// ready flips to true once an engine (wallet + SDK + indexer) is
 	// live and false as the first step of its teardown. Until then the
 	// /v1 guard middleware rejects every route except
-	// health/shutdown/auth with 401 auth.required, so handlers never
+	// health/shutdown/auth with 401 auth.required (503
+	// auth.login_pending for a waiting login), so handlers never
 	// observe a nil sdk. The store happens after the engine fields
 	// above are populated; the middleware's atomic load is the acquire
 	// edge that makes them visible. Tests building deps by hand must
@@ -132,6 +133,16 @@ type deps struct {
 	// engine; teardown closes and drains it before touching the
 	// fields above (gate.go). Zero value = open.
 	gate engineGate
+	// login is set while the published engine is a login waiting for
+	// the account's first sync (loginstate.go); ready is false then.
+	login atomic.Pointer[loginWait]
+	// firstSync overrides what a waiting login waits for — tests only;
+	// nil means the SDK's WaitListSynced.
+	firstSync func(ctx context.Context, sdk *anysyncsdk.SDK) error
+	// openMu orders openEngine, which a waiting login reaches from an
+	// engine goroutine, against the first step of a teardown. Never
+	// held across a wait.
+	openMu sync.Mutex
 
 	// authMu serializes engine lifecycle: boot (POST /v1/auth vs.
 	// server.Run), teardown (shutdown, DELETE /v1/auth) and the switch
@@ -203,6 +214,7 @@ func (d *deps) health(c echo.Context) error {
 		StartedAt:     d.startedAt,
 		NetworkId:     d.networkId,
 		Account:       d.accountID(),
+		Login:         d.loginState(),
 		Bootstrapping: d.bootstrapping(),
 		CRDTVersion:   d.crdtVersion(),
 	})

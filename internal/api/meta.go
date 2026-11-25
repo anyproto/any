@@ -12,6 +12,9 @@ type HealthResponse struct {
 	// ids to names themselves.
 	NetworkId string `json:"networkId"`
 	Account   string `json:"account"`
+	// Login is set while a login waits for the account's first sync;
+	// Account is empty until the wait ends (see LoginState).
+	Login *LoginState `json:"login,omitempty"`
 	// Bootstrapping is true while the booted SDK's background boot pass
 	// (eager space loading + offline catch-up) is still running. The
 	// server serves throughout; per-space convergence is /sync-status.

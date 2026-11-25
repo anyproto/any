@@ -38,7 +38,7 @@ A `spaces` row is the account's view of a space:
   "settings": { "notifyMode": "mentions" }, "derived": false }
 ```
 
-Fields mix scopes on purpose: `type`, `name`, `description`, `icon`, `remoteStatus`, `settings`, `derived` are **synced** across the account's devices, so a join pending (`joining`), a decline or a delete observed on one device converges the rest; `createdAt` is **derived** — stamped from the change that added the row (create for the author, join for a joiner), the same on every device; `ownRole` and `push` are **local** — each device derives them from the same converged inputs, so replicating them would only add lag — and so is `localStatus` (absent while the space is simply active), because a space offloaded on one device must stay loaded on another. Raw rows withhold private guest and invite keys.
+Fields mix scopes on purpose: `type`, `name`, `description`, `icon`, `remoteStatus`, `settings`, `anySpaceType`, `derived` are **synced** across the account's devices, so a join pending (`joining`), a decline or a delete observed on one device converges the rest; `createdAt` is **derived** — stamped from the change that added the row (create for the author, join for a joiner), the same on every device; `ownRole` and `push` are **local** — each device derives them from the same converged inputs, so replicating them would only add lag — and so is `localStatus` (absent while the space is simply active), because a space offloaded on one device must stay loaded on another. Raw rows withhold private guest and invite keys.
 
 ## The space list is a view
 

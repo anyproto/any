@@ -17,9 +17,9 @@
 // install, so this package is a generic engine, not a catalog.
 // Deleting a loser is the CLIENT's decision — only it knows whether
 // the loser's content was worth merging — so the engine only enforces
-// what is decidable without knowing the content: a created install
-// waits for the registry to converge before minting a root, and a
-// loser is deletable only once it has demonstrably stopped arriving.
+// what is decidable without knowing the content: nothing is installed
+// into a registry that has not reached this device, and a loser is
+// deletable only once it has demonstrably stopped arriving.
 package bundles
 
 import (
@@ -48,9 +48,10 @@ var (
 	// reached this device, so its id is not writable yet. Retryable —
 	// the answer changes as the space syncs.
 	ErrRootNotLocal = errors.New("bundle root not local")
-	// ErrRegistryNotSynced reports that a member could not converge the
-	// space's registry before installing, so the install would be made
-	// blind. Retryable.
+	// ErrRegistryNotSynced reports that the space's registry has not
+	// reached this device: the space was downloaded and its index has
+	// not arrived, so a read would show nothing and an install would be
+	// made blind. Retryable — the answer changes as the space syncs.
 	ErrRegistryNotSynced = errors.New("bundle registry not synced")
 	// ErrLoserNotReady reports that a losing root is still arriving:
 	// not yet fully synced, or still inside the quiescence window.
@@ -78,8 +79,7 @@ type Install struct {
 	RootProperties map[string]map[string]any
 	// Derived installs the bundle on the root DERIVED from its id
 	// instead of a created one: the same root id on every device,
-	// computed offline, so concurrent installs cannot fork and the
-	// convergence gate below has nothing to protect.
+	// computed offline, so concurrent installs cannot fork.
 	//
 	// The price is permanence — a derived tree cannot be deleted, so
 	// the bundle can never be uninstalled. For setups that must exist
@@ -155,10 +155,11 @@ type Resolver struct {
 	// doubles it up to a ten-minute cap. Set at construction; tests
 	// shorten it.
 	RetryDelay time.Duration
-	// IndexWait bounds the convergence wait an install runs before
-	// minting a root — for a derived install too, where expiring it
-	// is not a refusal but is not free either (see converge). Set at
-	// construction; tests shorten it.
+	// IndexWait bounds the convergence wait of a 1-1 space, the one
+	// kind whose registry is not gated on a local index (see gate) —
+	// for a derived install too, where expiring it is not a refusal
+	// but is not free either (see converge). Set at construction;
+	// tests shorten it.
 	IndexWait time.Duration
 	// OfflineIndexWait replaces IndexWait when no peer is connected.
 	// The wait buys information only from peers we can reach; with
@@ -188,9 +189,9 @@ const (
 	// DefaultGrace is the quiescence delay before a losing root may be
 	// deleted.
 	DefaultGrace = 5 * time.Minute
-	// DefaultIndexWait bounds the registry-convergence wait on the
-	// install path. Short: it rides a client request, and refusing is
-	// correct — the client retries.
+	// DefaultIndexWait bounds the registry-convergence wait of a 1-1
+	// space. Short: it rides a client request, and refusing is correct
+	// — the client retries.
 	DefaultIndexWait = 30 * time.Second
 	// DefaultOfflineIndexWait is the same wait with nobody to hear
 	// from: long enough for a peer that is mid-dial to land, short
@@ -235,22 +236,13 @@ func (r *Resolver) Reset() {
 // Adoption is a pure read — no registry write, so a reader or guest
 // member can resolve an install they may not create.
 //
-// Installing waits for the registry to converge first. It rides the
-// space's index tree, and a member that ensures against state it has
-// not synced yet reads "nothing installed" and mints a root competing
-// with the one already out there. WaitIndexSynced is the gate rather
-// than a bare head-sync round: a nil round is not proof of convergence
-// (any-sync swallows per-peer failures), while the wait also demands
-// the Synced rollup — and its local fast path keeps an offline owner
-// of an already-seeded space instant.
-//
-// When the wait cannot complete, who is asking decides: the space's
-// OWNER installs anyway — nobody else could have installed into a
-// space only this account has, and its own devices converge through
-// the registry — while any other member is refused with
-// ErrRegistryNotSynced rather than left to fork. A DERIVED install is
-// never refused: its root id is a pure function of the bundle id, so
-// there is no competing root to mint.
+// Installing needs the registry to be here first (see gate): a device
+// that ensures against one it has not received reads "nothing
+// installed" and mints a root competing with the one already out
+// there. It is refused with ErrRegistryNotSynced for every role, a
+// derived install included — a derived claim demotes a created install
+// this device has not seen. In a 1-1, a DERIVED install proceeds after
+// the bounded wait: its root id has no competitor to mint.
 //
 // createCtx runs the create-and-register section and should outlive
 // the caller's request: a cancellation between minting the root and
@@ -291,7 +283,7 @@ func (e *SetupError) Error() string { return "bundle " + e.Install.Id + ": " + e
 func (e *SetupError) Unwrap() error { return e.Err }
 
 // Setup ensures an ordered list of installs — a usecase and its
-// dependencies — against ONE registry-convergence wait, applying gates;
+// dependencies — against ONE pass of the registry gate, applying gates;
 // a non-nil error stops the walk at that entry.
 func (r *Resolver) Setup(ctx, createCtx context.Context, sp space.Space, installs []Install, gates Gates) ([]SetupResult, error) {
 	wait := r.oneWait(ctx, sp)
@@ -328,21 +320,39 @@ func rootXKey(ctx context.Context, sp space.Space, inst Install, rootId string) 
 	return info.XKey, err
 }
 
-// oneWait memoizes the registry-convergence wait for one call: the
-// first caller pays it, later ones read the verdict.
+// oneWait memoizes the registry gate for one call: the first caller
+// pays it, later ones read the verdict.
 func (r *Resolver) oneWait(ctx context.Context, sp space.Space) func() error {
 	var (
 		once sync.Once
 		err  error
 	)
 	return func() error {
-		once.Do(func() {
-			waitCtx, cancel := context.WithTimeout(ctx, r.waitFor(sp))
-			err = sp.WaitIndexSynced(waitCtx)
-			cancel()
-		})
+		once.Do(func() { err = r.gate(ctx, sp) })
 		return err
 	}
+}
+
+// oneToOne reports whether sp is a 1-1 space.
+func oneToOne(sp space.Space) bool { return sp.Info().Type == space.SpaceTypeOneToOne }
+
+// gate reports whether the space's registry is one to act on. The
+// registry rides the space index: here from creation on a space this
+// device created, once it has arrived on a downloaded one, and until
+// then an empty stand-in — ErrRegistryNotSynced, from a local read that
+// never waits. The tech space always passes (the server opens an
+// account only once its tech space was created here or has synced). A
+// 1-1 never seeds its index and keeps the bounded WaitIndexSynced.
+func (r *Resolver) gate(ctx context.Context, sp space.Space) error {
+	if !oneToOne(sp) {
+		if sp.IndexSeeded(ctx) {
+			return nil
+		}
+		return ErrRegistryNotSynced
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, r.waitFor(sp))
+	defer cancel()
+	return sp.WaitIndexSynced(waitCtx)
 }
 
 func (r *Resolver) ensure(ctx, createCtx context.Context, sp space.Space, inst Install, wait func() error,
@@ -436,8 +446,8 @@ func (r *Resolver) ensure(ctx, createCtx context.Context, sp space.Space, inst I
 		if err := r.converge(ctx, sp, inst, wait); err != nil {
 			return space.Bundle{}, false, err
 		}
-		// The converged registry may name a winner the pre-read could
-		// not see.
+		// After a 1-1's wait the registry may name a winner the
+		// pre-read could not see.
 		if existing, adopted, err = r.tryAdopt(ctx, sp, inst); err != nil || (adopted && settled(existing)) {
 			return existing, false, err
 		}
@@ -521,47 +531,35 @@ func (r *Resolver) ensure(ctx, createCtx context.Context, sp space.Space, inst I
 	return b, installed, nil
 }
 
-// converge runs the pre-install convergence wait (memoized by the
-// caller — one wait per Ensure or Setup) and decides what an expired
-// one means for this caller.
+// converge runs the pre-install registry gate (memoized by the caller
+// — one pass per Ensure or Setup) and decides what a closed one means
+// for this install.
 func (r *Resolver) converge(ctx context.Context, sp space.Space, inst Install, wait func() error) error {
 	err := wait()
 	if err == nil {
 		return nil
 	}
-	switch {
-	case inst.Derived:
-		// Not a gate — a derived install cannot mint a competing id,
-		// and refusing would deadlock the case it exists for: in a 1-1
-		// neither writer can ever take the owner escape below.
-		//
-		// It is not free either. If the space already carries a
-		// CREATED install this device has not seen, the derived claim
-		// demotes it to a loser on every replica, irreversibly (the
-		// derived root cannot be deleted). The wait is what narrows
-		// that window, which is why it is the full one and not a token
-		// pause; proceeding past it accepts the demotion.
-	case sp.Info().OwnRole == space.PermissionOwner:
-		// Nobody else could have installed into a space only this
-		// account has; its own devices converge through the registry.
-	default:
+	if !inst.Derived || !oneToOne(sp) {
 		return fmt.Errorf("bundle %s: %w", inst.Id, ErrRegistryNotSynced)
 	}
+	// A derived install in a 1-1 is not gated: it cannot mint a
+	// competing id, and neither writer could otherwise install first.
+	// Proceeding accepts demoting a created install this device has not
+	// seen; the full wait is what narrows that window.
 	log.Warn("installing without a converged registry",
-		zap.String("bundle", inst.Id), zap.String("spaceId", sp.Id()),
-		zap.Bool("derived", inst.Derived), zap.Error(err))
+		zap.String("bundle", inst.Id), zap.String("spaceId", sp.Id()), zap.Error(err))
 	return nil
 }
 
-// waitFor is how long to hold the convergence wait open: the full
+// waitFor is how long to hold a 1-1's convergence wait open: the full
 // bound while a peer is connected — a sync node, a LAN peer or a
 // global one, since a space that converges only over the relays is
 // not offline — and the offline bound while none is.
 // A head-sync round against nobody answers the same way every time,
 // so the long wait would spend an offline device's whole deadline
 // learning what its first attempt already told it — and the install
-// it gates either proceeds regardless (derived, owner) or is refused
-// either way (any other member).
+// it gates either proceeds regardless (derived) or is refused either
+// way (any other).
 func (r *Resolver) waitFor(sp space.Space) time.Duration {
 	st := sp.SyncStatus().Space()
 	if st.NetworkPeers == 0 && st.LocalPeers == 0 && st.GlobalPeers == 0 {
@@ -570,15 +568,29 @@ func (r *Resolver) waitFor(sp space.Space) time.Duration {
 	return r.IndexWait
 }
 
-// WaitConverged runs the registry-convergence wait the install gate
-// uses, bounded by the same knobs (offline fast expiry), and reports
-// whether the registry converged. The read-side lock for the bundles
-// surface: a read that answers after true reports definitive absence;
-// after false the caller labels the read provisional.
-func (r *Resolver) WaitConverged(ctx context.Context, sp space.Space) bool {
-	waitCtx, cancel := context.WithTimeout(ctx, r.waitFor(sp))
-	defer cancel()
-	return sp.WaitIndexSynced(waitCtx) == nil
+// ReadGate is the registry gate for a read or an uninstall. A space
+// whose index has not reached this device answers ErrRegistryNotSynced
+// — nothing read from it would be true. A 1-1 answers after its bounded
+// wait and reports whether the registry converged: after true absence
+// is definitive, after false the caller labels the read provisional.
+func (r *Resolver) ReadGate(ctx context.Context, sp space.Space) (synced bool, err error) {
+	if err := r.gate(ctx, sp); err != nil {
+		if oneToOne(sp) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+// RegistryLocal is the registry gate for the calls that never wait
+// (children, resolve): ErrRegistryNotSynced while the space's index has
+// not reached this device, nil otherwise and for every 1-1.
+func RegistryLocal(ctx context.Context, sp space.Space) error {
+	if oneToOne(sp) || sp.IndexSeeded(ctx) {
+		return nil
+	}
+	return ErrRegistryNotSynced
 }
 
 // tryAdopt is the pure-read half of Ensure: adopted=true when the

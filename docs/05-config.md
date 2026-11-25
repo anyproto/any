@@ -491,7 +491,10 @@ With no config file and no data dir, `any init` does:
    supplied phrase instead (restore / second device; fresh device key
    either way).
 3. Print the mnemonic to stderr (generation only), with a prominent
-   warning to back it up, and `{accountId, created}` on stdout.
+   warning to back it up, and `{accountId, created}` on stdout — plus
+   `"loginPending": true` when `--mnemonic` logged in to an account
+   this device holds nothing of: the next `any run` waits for the
+   account's first sync (`02-server.md` § Startup).
 
 `any run` does not create wallets (outside an explicit
 `auth.walletPath`): on a fresh root it starts unauthorized and waits for

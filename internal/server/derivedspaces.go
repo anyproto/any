@@ -9,36 +9,28 @@ import (
 )
 
 // The embedded derived-space registry: the closed vocabulary of
-// well-known per-account spaces `any` derives deterministically from
-// the account keys. Raw space derivation is never exposed over HTTP —
-// an arbitrary seed would mint a permanent space (derived spaces
-// cannot be deleted) and invite silent seed collisions between
-// consumers — so only the names listed here can be resolved
-// (GET /v1/spaces/derived) and materialized
-// (POST /v1/spaces/derived/:name).
+// well-known per-account spaces whose id `any` computes from the
+// account keys. The server creates no derived space: it resolves the
+// ids (GET /v1/spaces/derived), opens a space an account already has
+// (POST /v1/spaces/derived/:name) and keeps such a space undeletable.
+// Raw space derivation is never exposed over HTTP.
 //
-// Adding an entry: pick a short slug and a versioned seed following
-// the `any/space/<name>/v1` convention (same scheme as the derived
-// in-space objects — agentmem.BrainSeed etc.). Seeds are forever:
-// never change or reuse one — bump the version suffix for a
-// successor space instead. Removing an entry stops advertising the
+// Seeds follow the `any/space/<name>/v1` convention and are forever:
+// never change or reuse one. Removing an entry stops advertising the
 // name; it deletes nothing (nothing can).
 
 // derivedSpaceDef is one registry entry.
 type derivedSpaceDef struct {
 	// Name is the wire slug (`/v1/spaces/derived/:name`).
 	Name string
-	// DisplayName seeds the space's metadata name on first
-	// materialization (best-effort; empty = leave nameless).
-	DisplayName string
 	// Seed feeds space.DeriveRequest.Seed. Deterministic per account:
 	// same account + same seed = same spaceId on every device.
 	Seed string
 }
 
 var derivedSpaceDefs = []derivedSpaceDef{
-	// bao — the account's agent space.
-	{Name: "bao", DisplayName: "bao", Seed: "any/space/bao/v1"},
+	// bao — the agent space an earlier installation derived.
+	{Name: "bao", Seed: "any/space/bao/v1"},
 }
 
 // resolvedDerivedSpace is a registry entry resolved against the booted

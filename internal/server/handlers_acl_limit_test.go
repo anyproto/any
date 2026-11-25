@@ -99,14 +99,7 @@ func TestServer_DerivedSpaceUnshareable(t *testing.T) {
 		t.Fatalf("POST /v1/auth: %d %s", rec.Code, rec.Body.String())
 	}
 
-	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/derived/bao", "")
-	if rec.Code != http.StatusOK && rec.Code != http.StatusCreated {
-		t.Fatalf("derive bao: %d %s", rec.Code, rec.Body.String())
-	}
-	var sp api.SpaceInfo
-	if err := json.Unmarshal(rec.Body.Bytes(), &sp); err != nil || sp.Id == "" {
-		t.Fatalf("derive bao: %v %s", err, rec.Body.String())
-	}
+	sp := api.SpaceInfo{Id: deriveBao(t, d)}
 	_, pub, err := crypto.GenerateRandomEd25519KeyPair()
 	if err != nil {
 		t.Fatal(err)

@@ -42,6 +42,7 @@ Fields worth knowing on a raw row:
 | `remoteStatus` | the synced, account-wide lifecycle: absent or `active`, `joining` / `joinEnded`, `invitePending` / `inviteDeclined`, `deleted` (a sticky tombstone), … |
 | `localStatus` | the device-local lifecycle: absent means active; `oneToOnePending` marks an incoming one-to-one request |
 | `spaceType` | `any.space`, `any.onetoone`, … |
+| `anySpaceType` | what the account uses the space for, such as `bao` for its [agent space](../database/spaces.html#the-accounts-agent-space); absent on a space the account gave no use |
 | `createdAt` | added-to-account instant, `{"$date": "…"}`; absent when unknown. Sort `["-createdAt", "-id"]`, range-filter with `{"$gte": {"$date": "…"}}` |
 | `ownRole` | your own role, mirrored from ACL state: `owner` / `admin` / `writer` / `reader` / `guest` / `none`; absent until mirrored on this device |
 | `settings` | the account-private settings object written via `PATCH /v1/spaces/:id/settings` (e.g. `notifyMode`) |

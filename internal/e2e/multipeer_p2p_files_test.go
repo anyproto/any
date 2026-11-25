@@ -15,8 +15,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anyproto/any-sync-sdk/auth"
-
 	"github.com/anyproto/any/internal/api"
 )
 
@@ -36,12 +34,8 @@ func TestE2E_MultipeerP2PFileHolderGone(t *testing.T) {
 	}
 
 	nodeconfPath := writeDeadNodeconf(t)
-	mnemonic, err := auth.GenerateMnemonic()
-	if err != nil {
-		t.Fatal(err)
-	}
 	bin := buildBinary(t)
-	devA := startPeerOffline(t, bin, "devA", nodeconfPath, mnemonic)
+	devA, created := startPeerOffline(t, bin, "devA", nodeconfPath, "")
 	defer devA.stop(t)
 
 	var sp api.SpaceInfo
@@ -61,12 +55,14 @@ func TestE2E_MultipeerP2PFileHolderGone(t *testing.T) {
 	var pa api.P2PStatusResponse
 	mustJSON(t, http.MethodGet, devA.base+"/v1/debug/p2p", "", http.StatusOK, &pa)
 
-	devB := startPeerOffline(t, bin, "devB", nodeconfPath, mnemonic)
+	// B's login waits for the tech space, and A is the only source.
+	devB, _ := startPeerOffline(t, bin, "devB", nodeconfPath, created.Mnemonic)
 	defer devB.stop(t)
+	converge := time.Now()
+	waitForAuthorized(t, devB.base, 2*time.Minute)
 
 	// B converges both rows: not durable, nothing local. A cold restore
 	// over the LAN alone can take two minutes.
-	converge := time.Now()
 	filesB := devB.base + "/v1/spaces/" + sp.Id + "/files"
 	for _, f := range []api.FileInfo{f1, f2} {
 		var got api.FileInfo

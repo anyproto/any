@@ -106,7 +106,7 @@ the converged row and whether THIS call installed it.`,
 func newBundleListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list <spaceId>",
-		Short: "list the space's bundles (locked on registry convergence; the reply says whether it converged)",
+		Short: "list the space's bundles (409 bundle.not_ready until the space's registry has reached this device)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cl := newClient(flags.Timeout)

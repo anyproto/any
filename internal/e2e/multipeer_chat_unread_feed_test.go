@@ -189,7 +189,7 @@ func TestE2E_MultipeerChatUnreadFeed(t *testing.T) {
 
 	// A restart re-notifies nothing and keeps earlier cursors valid.
 	obs.stop(t)
-	bootWithConfig(t, bin, obs, fmt.Sprintf("network:\n  nodeconfPath: %s\nindex:\n  embedder: none\n", absStagingPath(t)))
+	bootWithConfig(t, bin, obs, peerConfig(absStagingPath(t)))
 	if after := feed(cursor); len(after.Changes) != 0 || after.Cursor != cursor {
 		t.Fatalf("after restart = %+v, want no changes and cursor %s", after, cursor)
 	}

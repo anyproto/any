@@ -17,7 +17,7 @@ order: 10
    - `account:` / `ANY_ACCOUNT` / `--account` → `<root>/<id>/` if present, else the root wallet (its derived id must match);
    - no selector → the root `wallet.key` if one exists, else a sole `<root>/<id>/` directory, else **no account**.
 3. **With an account, boot its engine** before the listener binds, so boot failures surface immediately: take the instance lock in the account dir → open the wallet → derive the account id → open the SDK → open the search indexer. An `sdk.db` in an older on-disk format is copied onto the current one while the SDK opens, so that boot takes as long as the copy ([Data directory](data-dir.html)). `any run` never generates a wallet; create accounts with `any init` or over HTTP. Opening checks the account's **CRDT version mark** first: data written by a newer release refuses the boot (`any run` exits with the reason; over HTTP `409 sdk.crdt_version_newer`), so an older server never writes into data shaped by rules it does not know.
-4. **Without an account, start unauthorized.** Every `/v1` route except `/v1/health`, `/v1/shutdown`, `/v1/openapi.json` and `/v1/auth` returns `401 auth.required` until `POST /v1/auth` creates, restores or selects an account and boots the engine in place — no restart. See [Accounts](../auth/accounts.html).
+4. **Without an account, start unauthorized.** Every `/v1` route except `/v1/health`, `/v1/shutdown`, `/v1/openapi.json` and `/v1/auth` returns `401 auth.required` until `POST /v1/auth` creates an account, logs in to one or selects one, and boots the engine in place — no restart. A login with a phrase on a device that holds nothing of the account boots closed: those routes answer `503 auth.login_pending` until the account has synced once. See [Accounts](../auth/accounts.html).
 5. **Bind** `127.0.0.1:<port>` (default 2046), print `LISTENING <addr>` on stdout — followed by `CONTROL_TOKEN <hex>` on a managed server that minted its token — record the address in the account dir's `server.addr` once an engine is up, and serve.
 
 ```bash
@@ -47,7 +47,7 @@ The search indexer has a background bootstrap of its own that `bootstrapping` do
 
 `crdtVersion` (absent when unauthorized) compares the data-model version this server writes with the one the account records. `newer: true` means another device on a newer release raised it: the server keeps serving reads and refuses every synced write with `409 sdk.crdt_version_newer` until it is upgraded.
 
-> **Note.** Boot also upserts this device's row in the account's [devices registry](../auth/devices.html) (OS and version each boot, hostname as the name on first registration), and — for the well-known derived spaces the account already has — waits for their bundle registries to converge so a client ensuring right after a restore meets real state rather than an empty one.
+> **Note.** Once the account is open, the server upserts this device's row in the account's [devices registry](../auth/devices.html) (OS and version each boot, hostname as the name on first registration). For a login that happens after the account's first sync, not before.
 
 ## Listen address
 

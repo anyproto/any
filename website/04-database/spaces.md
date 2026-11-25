@@ -15,7 +15,7 @@ curl -X POST http://127.0.0.1:2046/v1/spaces \
   -d '{"name": "Project Phoenix", "description": "shared notes + chat"}'
 ```
 
-The body is `{name?, description?, iconCid?, spaceType?}`. The reply is a `201` with the space's `SpaceInfo`. `spaceType` is pinned at create and cannot be patched later.
+The body is `{name?, description?, iconCid?, spaceType?, anySpaceType?}`. The reply is a `201` with the space's `SpaceInfo`. `spaceType` is pinned at create and cannot be patched later. `anySpaceType` says what the account uses the space for: a lowercase slug of at most 64 characters (`[a-z0-9][a-z0-9._-]*`, else `400 request.invalid_field`), given at create; no route changes it afterwards.
 
 ## The `SpaceInfo` shape
 
@@ -25,6 +25,7 @@ Every single-space response (`POST /v1/spaces`, `GET /v1/spaces/:spaceId`) retur
 |-------|---------|
 | `id` | The space id (base58). |
 | `spaceType` | App-level classification: `any.space` for a created space, `any.onetoone` for a direct space. |
+| `anySpaceType` | What the account uses the space for, such as `bao` for its agent space. The account's own: synced across its devices with the space list, readable before the space loads, never visible to other members. Omitted on a space the account gave no use. |
 | `author` | The owner's account identity, resolved from the ACL (omitted when not loadable). |
 | `name`, `description`, `iconCid` | Member-replicated metadata. |
 | `status` | `active`, `deleted`, `joining`, `one_to_one_pending`, `one_to_one_declined`, `invite_pending`, `invite_declined`, `guest_revoked`. |
@@ -51,6 +52,24 @@ For a filterable, sortable or live view use the query primitive over the raw spa
 any space query --sort -createdAt,-id --limit 10
 any space subscribe
 ```
+
+## The account's agent space
+
+The account's agent space is a regular space whose row carries `anySpaceType: "bao"`. Find it in the space list: the active row with that value; with more than one, the row with the earliest `createdAt` (the lower `id` on a tie).
+
+```bash
+curl -s http://127.0.0.1:2046/v1/spaces | jq '[.spaces[] | select(.anySpaceType == "bao")]'
+```
+
+An account with no such row creates it:
+
+```bash
+curl -X POST http://127.0.0.1:2046/v1/spaces \
+  -H 'Content-Type: application/json' \
+  -d '{"name": "Bao", "anySpaceType": "bao"}'
+```
+
+The create needs no network, and the space's [bundles](../collaboration/bundles.html) work at once. Creating it is an explicit act: the create-account flow, or a user's "set up" action on an account that has none, never a boot step. A device that logged in has synced the space list once, so an absent row there means no device had created one by then, or that this device received the row while its `any` predated the field. On a later start the list is what the device held when it stopped: the account opens without waiting for the network, and a row another device created meanwhile arrives with the tech space's next sync. Offer the create only while the list has no such row and the tech space reads `state: "synced"` (`GET /v1/spaces/<techSpaceId>/sync-status`, with `techSpaceId` from `GET /v1/account`), and keep watching the list: a row from a device that was offline can still arrive. A [derived](../collaboration/derived-spaces.html) `bao` space that an earlier installation created is a different space: its row carries no `anySpaceType`.
 
 ## Read one space
 

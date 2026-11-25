@@ -23,6 +23,7 @@ func registerAuthRoutes(g *echo.Group, d *deps) {
 	g.GET("/auth", d.authStatus)
 	g.POST("/auth", d.authorize)
 	g.DELETE("/auth", d.deauthorize)
+	g.DELETE("/auth/login", d.loginDiscard)
 }
 
 // authStatus handles GET /v1/auth.
@@ -39,6 +40,7 @@ func (d *deps) authStatus(c echo.Context) error {
 	resp := api.AuthStatusResponse{
 		Authorized:   account != "",
 		AccountId:    account,
+		Login:        d.loginState(),
 		Mode:         d.cfg.Mode,
 		Capabilities: d.capabilities(),
 		Accounts:     []api.AuthAccount{},
@@ -193,6 +195,9 @@ func (d *deps) authorize(c echo.Context) error {
 	switch {
 	case req.Mnemonic != "":
 		identity, open, created = d.credentialFor(c, target, req.Mnemonic, derivedKey, idx)
+		// A phrase on a device that holds nothing of the account is a
+		// login: the engine stays closed until the account has synced.
+		open = loginCredential(identity.Dir, identity.keyPath(), open)
 
 	case req.AccountId != "":
 		identity = d.identityForAccount(c, req.AccountId)
@@ -228,9 +233,10 @@ func (d *deps) authorize(c echo.Context) error {
 	}
 	switch {
 	case errors.Is(err, errAlreadyAuthorized):
-		// The account came up between the pre-check and the lock
-		// (or a same-account replace raced another): a no-op.
-		return c.JSON(http.StatusOK, api.AuthResponse{AccountId: eng.account, AlreadyAuthorized: true})
+		// The account came up between the pre-check and the lock (or a
+		// same-account replace raced another), or it is a login still
+		// waiting for its first sync: a no-op.
+		return c.JSON(http.StatusOK, api.AuthResponse{AccountId: eng.account, AlreadyAuthorized: true, Login: d.loginState()})
 	case errors.Is(err, errAccountMismatch):
 		return d.refuseOtherAccount(c, target, req.Replace)
 	case err != nil:
@@ -240,6 +246,7 @@ func (d *deps) authorize(c echo.Context) error {
 		AccountId: eng.account,
 		Created:   created,
 		Mnemonic:  generated,
+		Login:     d.loginState(),
 	})
 }
 
@@ -286,6 +293,42 @@ func (d *deps) deauthorize(c echo.Context) error {
 	}
 	d.teardownEngine(authLog, api.SubscribeClosedDeauthorized)
 	return c.NoContent(http.StatusNoContent)
+}
+
+// loginDiscard handles DELETE /v1/auth/login — end a login that waits
+// for its first sync and remove what it made on this device (its
+// account dir: keys, data, state), in either mode. The server stays up
+// unauthorized. An open account is never discarded: 409
+// auth.already_authorized. Idempotent: no engine is 204 too.
+//
+//	@Summary	Discard a login that waits for its first sync
+//	@Tags		auth
+//	@Param		X-Any-Control-Token	header	string	false	"managed servers: the control token"
+//	@Success	204
+//	@Failure	403	{object}	api.ErrorEnvelope
+//	@Failure	409	{object}	api.ErrorEnvelope
+//	@Failure	500	{object}	api.ErrorEnvelope
+//	@Router		/auth/login [delete]
+func (d *deps) loginDiscard(c echo.Context) error {
+	if !d.requireControl(c) {
+		return nil
+	}
+	err := d.discardLogin(authLog)
+	switch {
+	case err == nil:
+		return c.NoContent(http.StatusNoContent)
+	case errors.Is(err, errAlreadyAuthorized):
+		return writeError(c, http.StatusConflict, "auth.already_authorized",
+			"the account is open, or its login state already reads complete — no login waits to be discarded", nil)
+	case errors.Is(err, errLoginNotDiscardable):
+		return writeError(c, http.StatusConflict, "auth.login_not_discardable",
+			"the waiting login's dir may hold an account that was open: it is not an account dir of its own, its login state is unreadable, or the device is in the account's registry (a registry that cannot be read counts as such) — the server removes nothing", nil)
+	case errors.Is(err, errAccountHeld):
+		return writeError(c, http.StatusConflict, "auth.account_in_use",
+			"the login is ended, but its account dir is still held by an unfinished request and was not removed; it still reads as a waiting login", nil)
+	}
+	authLog.Error("discard login", zap.Error(err))
+	return writeError(c, http.StatusInternalServerError, "internal", "the login is ended, but its account dir was not removed in full; what is left still reads as a waiting login", nil)
 }
 
 // credentialFor resolves where an account derived from a phrase lives

@@ -33,3 +33,9 @@ func (c *Client) Authorize(ctx context.Context, req api.AuthRequest) (*api.AuthR
 func (c *Client) Deauthorize(ctx context.Context) error {
 	return c.do(ctx, http.MethodDelete, "/v1/auth", nil, nil)
 }
+
+// DiscardLogin ends a login that waits for its first sync and removes
+// what it made on the device. DELETE /v1/auth/login.
+func (c *Client) DiscardLogin(ctx context.Context) error {
+	return c.do(ctx, http.MethodDelete, "/v1/auth/login", nil, nil)
+}

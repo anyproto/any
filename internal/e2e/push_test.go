@@ -47,9 +47,7 @@ func TestE2E_Push(t *testing.T) {
 			fmt.Fprintf(&addrLines, "    - %q\n", a)
 		}
 	}
-	cfgBody := fmt.Sprintf(
-		"network:\n  nodeconfPath: %s\nindex:\n  embedder: none\npush:\n  peerId: %s\n  addrs:\n%s",
-		absStagingPath(t), peerId, addrLines.String())
+	cfgBody := peerConfig(absStagingPath(t)) + fmt.Sprintf("push:\n  peerId: %s\n  addrs:\n%s", peerId, addrLines.String())
 	cfgPath := filepath.Join(dataDir, "config.yaml")
 	if err := os.WriteFile(cfgPath, []byte(cfgBody), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
