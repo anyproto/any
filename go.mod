@@ -9,8 +9,8 @@ godebug x509sslcertoverrideplatform=0
 require (
 	github.com/anyproto/any-store v1.0.3
 	github.com/anyproto/any-store/v2 v2.5.0
-	github.com/anyproto/any-sync v0.13.9-0.20261124143616-74c5dbf419cd
-	github.com/anyproto/any-sync-sdk v0.8.1-0.20261124161142-9f5fbc5b35a0
+	github.com/anyproto/any-sync v0.13.9-0.20261124180638-7d4b49b1ce33
+	github.com/anyproto/any-sync-sdk v0.8.1-0.20261125203335-ce635c0d353d
 	github.com/anyproto/anytype-push-server/pushclient v0.0.0-20261014142855-af71aa8b1662
 	github.com/anyproto/go-sqlite v1.4.2-any
 	github.com/anyproto/lexid v0.0.6
