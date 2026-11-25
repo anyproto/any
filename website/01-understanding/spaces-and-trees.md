@@ -18,7 +18,7 @@ space  (id = CID of the signed header + "." + replication key)
     └── change → change → change   (DAG; tips are the heads)
 ```
 
-- The **header** is signed at creation and hashed into the space id. It carries the `spaceType` (`any.space`, `any.techspace`, `any.onetoone`) and the `replicationKey` that decides which sync nodes are responsible for the space. The coordinator rejects headers with unknown types, and because the header is content-addressed it can never change.
+- The **header** is signed at creation and hashed into the space id. It carries the `spaceType` (`any.space`, `any.organization`, `any.organization.space`, `any.techspace`, `any.onetoone`) and the `replicationKey` that decides which sync nodes are responsible for the space. The coordinator rejects headers with unknown types, and because the header is content-addressed it can never change.
 - The **ACL** is an append-only chain of records — `AclRoot`, `AclAccountInvite`, `AclAccountRequestJoin` / `AclAccountInviteJoin`, `AclAccountRequestAccept` / `Decline` / `Cancel`, `AclAccountsAdd`, `AclAccountPermissionChanges`, `AclAccountRemove`, `AclReadKeyChange`, `AclOwnershipChange`. It names member public keys and their permission (`none`, `reader`, `guest`, `writer`, `admin`, `owner`) and carries the read keys, encrypted to each member ([ACL](../collaboration/acl.html)).
 - The **settings tree** is an ordinary object tree with a fixed job: it records object deletions, so a delete propagates like any other change.
 - **Object trees** hold the data. Every object you create (`POST /v1/spaces/:id/objects`) is one tree.

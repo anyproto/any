@@ -42,6 +42,11 @@ components:
         newOwner:
           type: string
         oldOwnerPerm:
+          description: OldOwnerPerm is the role the previous owner keeps. Required.
+          enum:
+          - reader
+          - writer
+          - admin
           type: string
       type: object
     api.ACLPermissionChange:
@@ -90,6 +95,17 @@ components:
           - already_redeemed
           type: string
       type: object
+    api.AccountChildSpacesLimits:
+      properties:
+        fetchedAt:
+          description: FetchedAt is when the network gave this answer.
+          type: string
+        limit:
+          description: |-
+            Limit is how many child spaces the spaces the account owns may
+            have together.
+          type: integer
+      type: object
     api.AccountDiscoveryStatus:
       description: Account is the account-level discovery record (pkarr).
       properties:
@@ -123,6 +139,8 @@ components:
       type: object
     api.AccountLimitsResponse:
       properties:
+        childSpaces:
+          $ref: '#/components/schemas/api.AccountChildSpacesLimits'
         sharedSpaces:
           $ref: '#/components/schemas/api.AccountSharedSpacesLimits'
         storage:
@@ -923,6 +941,60 @@ components:
         replyToMessageId:
           type: string
         text:
+          type: string
+      type: object
+    api.ChildMember:
+      properties:
+        identity:
+          type: string
+        permission:
+          enum:
+          - owner
+          - admin
+          - writer
+          - reader
+          - guest
+          - none
+          type: string
+        status:
+          enum:
+          - unknown
+          - joining
+          - active
+          - removed
+          - declined
+          - removing
+          - canceled
+          type: string
+      type: object
+    api.ChildMembersResponse:
+      properties:
+        members:
+          items:
+            $ref: '#/components/schemas/api.ChildMember'
+          type: array
+          uniqueItems: false
+        rotationPending:
+          description: |-
+            RotationPending reports that members removed from the child
+            still hold its current read key: true from a removal made from
+            the parent side until an admin or the owner of the child has
+            changed the key. A child that stays pending has no device of an
+            admin or the owner left to change it.
+          type: boolean
+      type: object
+    api.ChildSpace:
+      properties:
+        id:
+          type: string
+        status:
+          description: |-
+            Status is the child's state on the network. A deleted child is
+            listed as deletion_pending until the coordinator has finished
+            deleting it, and not at all after that.
+          enum:
+          - active
+          - deletion_pending
           type: string
       type: object
     api.CollectionInfo:
@@ -2334,6 +2406,16 @@ components:
             $ref: '#/components/schemas/api.Member'
           type: array
           uniqueItems: false
+        rotationPending:
+          description: |-
+            RotationPending reports that members were removed from the space
+            without a read key change and still hold the current key: they
+            read what is written until it changes. An admin or the owner of
+            the parent removes members of a child space this way. A device
+            of an admin or the owner of this space that holds the space
+            changes the key by itself, at start and while it runs; the field
+            reads false once that record is applied here.
+          type: boolean
       type: object
     api.ModifyResult:
       properties:
@@ -3114,6 +3196,14 @@ components:
         truncated:
           type: boolean
       type: object
+    api.SpaceChildrenResponse:
+      properties:
+        children:
+          items:
+            $ref: '#/components/schemas/api.ChildSpace'
+          type: array
+          uniqueItems: false
+      type: object
     api.SpaceCreateRequest:
       properties:
         anySpaceType:
@@ -3124,7 +3214,16 @@ components:
           type: string
         name:
           type: string
+        parentSpaceId:
+          description: |-
+            ParentSpaceId creates the space as a child of that organization,
+            which the account holds as a writer, an admin or the owner.
+          type: string
         spaceType:
+          description: |-
+            SpaceType is the type of the space: "any.space", also when empty,
+            or "any.organization", a space that can have child spaces. With
+            ParentSpaceId it is "any.organization.space" or empty.
           type: string
       type: object
     api.SpaceDatasetAggregateRequest:
@@ -3248,8 +3347,28 @@ components:
           - guest
           - none
           type: string
+        parentSpaceId:
+          description: |-
+            ParentSpaceId is the parent of a child space, as the space header
+            names it. Absent on a top-level space, and on a joined child
+            until its first load.
+          type: string
         push:
           $ref: '#/components/schemas/api.SpacePushKeys'
+        refusal:
+          description: |-
+            Refusal names what the coordinator refused for the space: the
+            check a child failed when it was not accepted on the network, or
+            has_children on a deleted space whose deletion waits for its
+            children. Synced across the account's devices; absent when
+            nothing is refused.
+          enum:
+          - parent_not_available
+          - parent_invalid
+          - parent_permission_denied
+          - child_limit_reached
+          - has_children
+          type: string
         settings:
           additionalProperties: {}
           type: object
@@ -3952,10 +4071,10 @@ paths:
       - account
   /account/limits:
     get:
-      description: The file-storage pool with its usage and the shared-spaces limit.
-        Each part is the network's last answer, kept on the device (see fetchedAt),
-        and omitted when the network never answered. A request waits for the network
-        at most five seconds; an unreachable network is a 200.
+      description: The file-storage pool with its usage, the shared-spaces limit and
+        the child-spaces limit. Each part is the network's last answer, kept on the
+        device (see fetchedAt), and omitted when the network never answered. A request
+        waits for the network at most five seconds; an unreachable network is a 200.
       responses:
         "200":
           content:
@@ -4298,6 +4417,263 @@ paths:
       summary: Set a usecase up in a space, dependencies included
       tags:
       - catalog
+  /children/{childId}:
+    delete:
+      description: 'Deletes the child on the network, for everyone, without access
+        to its data. The network accepts the call from the owner of the parent and
+        from the child''s own owner, whatever its role in the parent. When the account
+        also holds the child in its own list, the row then reads deleted and the local
+        copy is removed. DELETE /spaces/{spaceId} stays the call for a space of the
+        account''s own list: on a child it deletes on the network only for the child''s
+        owner. Needs the network.'
+      parameters:
+      - description: Space ID of the child
+        in: path
+        name: childId
+        required: true
+        schema:
+          type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: request.invalid_field — childId is not a space id
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: space.parent_permission_denied — the account is neither the
+            owner of the parent nor the child's own owner
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: space.not_found — the coordinator does not know the space
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: space.not_child — the account's space list shows the space
+            has no parent, or the coordinator shows an active top-level space of another
+            account; space.parent_not_available — the coordinator cannot read the
+            ACL of the child's parent
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: network.unreachable — the coordinator could not be reached;
+            nothing changed
+      summary: Delete a child space, as the owner of its parent or its own owner
+      tags:
+      - children
+  /children/{childId}/acl/ownership:
+    post:
+      description: newOwner, an active member of the child and a member of the parent,
+        becomes its owner. The previous owner stays a member with oldOwnerPerm; removing
+        them is a separate call. The network accepts the call from the owner of the
+        parent and from the child's own owner, whatever its role in the parent. Needs
+        the network.
+      parameters:
+      - description: Space ID of the child
+        in: path
+        name: childId
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/api.ACLOwnershipRequest'
+                description: 'New owner + the role the previous owner keeps: reader,
+                  writer or admin'
+                summary: body
+        description: 'New owner + the role the previous owner keeps: reader, writer
+          or admin'
+        required: true
+      responses:
+        "204":
+          description: No Content
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: request.missing_field — newOwner or oldOwnerPerm is missing;
+            request.invalid_field — oldOwnerPerm is none, guest or owner, or childId
+            is not a space id; request.schema — an unknown permission
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: space.parent_permission_denied — the account is neither the
+            owner of the parent nor the child's own owner; acl.forbidden — the new
+            owner is the owner already, or the space is a top-level space of another
+            account
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: members.not_found — the new owner is no member of the child;
+            space.not_found — the coordinator does not know the space
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: space.not_child — the account's space list shows the space
+            has no parent; space.deleted — the coordinator holds the space as deleted
+            or in deletion; acl.not_parent_member — the new owner is no member of
+            the parent; space.parent_not_available — the coordinator cannot read the
+            ACL of the child's parent
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: network.unreachable — the network could not be reached; nothing
+            changed
+      summary: Hand a child space to another of its members, as the owner of its parent
+        or its own owner
+      tags:
+      - children
+  /children/{childId}/acl/remove:
+    post:
+      description: 'For an admin or the owner of the parent, and nobody else: no role
+        in the child allows it. The members lose their permissions at once. The read
+        key is not changed, since the caller does not hold it: the removed members
+        read what is written until a device of an admin or the owner of the child
+        changes the key, which it does by itself (rotationPending on GET /children/{childId}/members,
+        and on GET /spaces/{spaceId}/members for the child''s members). The child''s
+        owner cannot be removed. Needs the network.'
+      parameters:
+      - description: Space ID of the child
+        in: path
+        name: childId
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - type: object
+              - $ref: '#/components/schemas/api.ACLRemoveRequest'
+                description: Identities to remove
+                summary: body
+        description: Identities to remove
+        required: true
+      responses:
+        "204":
+          description: No Content
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: request.missing_field — identities is empty; request.invalid_field
+            — an identity is listed more than once or is malformed, or childId is
+            not a space id
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: space.parent_permission_denied — the account is not an admin
+            or the owner of the parent, or an admin removes an account that is an
+            admin or the owner of the parent; acl.forbidden — the child's owner or
+            the caller is among the identities, or the space is a top-level space
+            of another account
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: members.not_found — an identity is no member of the child;
+            space.not_found — the coordinator does not know the space
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: space.not_child — the account's space list shows the space
+            has no parent; space.deleted — the coordinator holds the space as deleted
+            or in deletion; space.parent_not_available — the coordinator cannot read
+            the ACL of the child's parent
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: network.unreachable — the network could not be reached; nothing
+            changed
+      summary: Remove members of a child space as an admin or the owner of its parent
+      tags:
+      - children
+  /children/{childId}/members:
+    get:
+      description: 'The accounts of the child with role and status, read from the
+        ACL the nodes serve: the identities to remove, and the active members one
+        of whom can become the owner. No names: the caller holds no key of the child.
+        rotationPending is true while members removed from the parent side still hold
+        the child''s read key. The nodes serve a space''s ACL to any account, so no
+        role is checked. Needs the network.'
+      parameters:
+      - description: Space ID of the child
+        in: path
+        name: childId
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ChildMembersResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: request.invalid_field — childId is not a space id
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: space.not_found — the coordinator does not know the space
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: space.not_child — the account's space list shows the space
+            has no parent; space.deleted — the coordinator holds the space as deleted
+            or in deletion
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: network.unreachable — no node could be reached
+      summary: List the accounts of a child space from the parent side
+      tags:
+      - children
   /datasets:
     get:
       responses:
@@ -5699,6 +6075,13 @@ paths:
       tags:
       - spaces
     post:
+      description: 'spaceType names the type of the space: any.space, also when empty,
+        or any.organization, a space that can have child spaces. With parentSpaceId
+        the space is created as a child of that organization, of type any.organization.space.
+        Creation is local either way; the network accepts a child when it is first
+        pushed, and SpaceInfo.refusal names a check it failed. anySpaceType says what
+        the account uses the space for and is read back on the space; a request that
+        carries it together with parentSpaceId is refused.'
       requestBody:
         content:
           application/json:
@@ -5722,7 +6105,23 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
-          description: Bad Request
+          description: request.invalid_field — spaceType is not any.space or any.organization,
+            or with parentSpaceId not any.organization.space; parentSpaceId is not
+            a space id; anySpaceType is not a lowercase slug of at most 64 characters,
+            or comes with parentSpaceId
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: space.not_found — the account has no space parentSpaceId
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: space.parent_invalid — the parent is not an organization; space.deleted,
+            space.not_accepted — the parent is not an accepted space of the account
         "500":
           content:
             application/json:
@@ -5749,7 +6148,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
-          description: Conflict
+          description: space.has_children — the space still has child spaces; space.derived_undeletable
+            — a derived space
         "500":
           content:
             application/json:
@@ -5855,7 +6255,10 @@ paths:
               schema:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
           description: acl.limit_reached — the owner's plan is at its limit of readers
-            or writers for the space
+            or writers for the space; acl.not_parent_member — in a child space, the
+            joiner is not a member of the parent; space.parent_not_available — in
+            a child space, the coordinator cannot read the ACL of the parent; acl.no_guest_role
+            — permission guest in an organization or one of its child spaces
         "500":
           content:
             application/json:
@@ -5894,14 +6297,27 @@ paths:
               schema:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
           description: Bad Request
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: space.parent_permission_denied — a child the coordinator refused
+            for the role in its parent
         "409":
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
           description: acl.limit_reached — the owner's plan is at its limit of shared
-            spaces, or of readers or writers for the space; space.derived_unshareable
-            — a derived space
+            spaces, or of readers or writers for the space; acl.not_parent_member
+            — in a child space, an added account is not a member of the parent; acl.no_guest_role
+            — an account added as guest in an organization or one of its child spaces,
+            and nobody of the batch is added; space.derived_unshareable — a derived
+            space; space.not_pushed — the space's first push has not landed; space.parent_not_available,
+            space.parent_invalid, space.child_limit_reached — a child the coordinator
+            refused; space.parent_not_available — also in a child space, when the
+            coordinator cannot read the ACL of the parent
         "500":
           content:
             application/json:
@@ -6005,9 +6421,11 @@ paths:
               oneOf:
               - type: object
               - $ref: '#/components/schemas/api.ACLOwnershipRequest'
-                description: New owner + old owner permission
+                description: 'New owner + the role the previous owner keeps: reader,
+                  writer or admin'
                 summary: body
-        description: New owner + old owner permission
+        description: 'New owner + the role the previous owner keeps: reader, writer
+          or admin'
         required: true
       responses:
         "204":
@@ -6017,7 +6435,23 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
-          description: Bad Request
+          description: request.missing_field — newOwner or oldOwnerPerm is missing;
+            request.invalid_field — oldOwnerPerm is none, guest or owner; request.schema
+            — an unknown permission
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: members.not_found — the new owner is no member of the space
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: acl.not_parent_member — in a child space, the new owner is
+            not a member of the parent; space.parent_not_available — in a child space,
+            the coordinator cannot read the ACL of the parent
         "500":
           content:
             application/json:
@@ -6056,13 +6490,21 @@ paths:
               schema:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
           description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: members.not_found — an identity the ACL holds no account of
         "409":
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
           description: acl.limit_reached — the owner's plan is at its limit of readers
-            or writers for the space
+            or writers for the space; acl.no_guest_role — a change to guest in an
+            organization or one of its child spaces, and no change of the batch is
+            made
         "500":
           content:
             application/json:
@@ -6100,7 +6542,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
-          description: Bad Request
+          description: request.missing_field — identities is empty; request.invalid_field
+            — an identity is listed more than once or is malformed
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: members.not_found — an identity the ACL holds no account of
         "500":
           content:
             application/json:
@@ -6512,6 +6961,69 @@ paths:
       summary: Resolve a losing root
       tags:
       - bundles
+  /spaces/{spaceId}/children:
+    get:
+      description: 'Every child of the space as the coordinator holds it, the ones
+        this account is no member of included. For an admin or the owner of the parent;
+        a member finds the children it belongs to in the space list, by SpaceInfo.parentSpaceId.
+        The type of the space is not checked: an admin or the owner of a space that
+        is not an organization gets an empty list, so an empty list does not say the
+        space can have children; SpaceInfo.type does. Needs the network.'
+      parameters:
+      - description: Space ID of the parent
+        in: path
+        name: spaceId
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.SpaceChildrenResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: request.invalid_field — spaceId is not a space id
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: space.parent_permission_denied — the account is not an admin
+            or the owner of the space, or the space is a child the coordinator refused
+            for the role in its parent
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: space.not_found — the coordinator does not know the space and
+            the account does not hold it as an active space
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: space.deleted — the coordinator holds the space as deleted
+            or in deletion; space.not_pushed — the account's own active space has
+            not reached the network yet and holds no refusal; space.parent_not_available
+            — the parent's ACL has not reached the network yet, or the space is a
+            child refused for it; space.parent_invalid, space.child_limit_reached
+            — the space is a child the coordinator refused
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: network.unreachable — the coordinator could not be reached
+      summary: List the child spaces of a parent space
+      tags:
+      - spaces
   /spaces/{spaceId}/collections:
     get:
       parameters:
@@ -7603,6 +8115,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
           description: No active guest key
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: acl.no_guest_role — an organization or one of its child spaces,
+            for any caller
         "500":
           content:
             application/json:
@@ -7615,7 +8134,8 @@ paths:
     post:
       description: 'Mints a shared read-only guest identity (ACL guest account) and
         returns it as an invite token for POST /v1/spaces/join. Idempotent: one active
-        guest key per space; repeated calls return the same token. Owner only.'
+        guest key per space; repeated calls return the same token. Owner only. An
+        organization and its child spaces have no guest role, and so no guest key.'
       parameters:
       - description: Space ID
         in: path
@@ -7635,9 +8155,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
-          description: acl.limit_reached — the owner's plan is at its limit of shared
-            spaces or of this space's readers; space.derived_unshareable — a derived
-            space
+          description: acl.no_guest_role — an organization or one of its child spaces,
+            for any caller; acl.limit_reached — the owner's plan is at its limit of
+            shared spaces or of this space's readers; space.derived_unshareable —
+            a derived space; space.not_pushed — the space's first push has not landed
         "500":
           content:
             application/json:
@@ -7769,6 +8290,10 @@ paths:
       tags:
       - invites
     post:
+      description: 'Mints the space''s request-to-join invite. A space holds one at
+        a time: a mint while this device''s copy of the ACL holds it is 409 invite.duplicate
+        and replaces nothing; revoke it to mint another. A mint beside another mint
+        fails and is safe to repeat.'
       parameters:
       - description: Space ID
         in: path
@@ -7788,15 +8313,19 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
-          description: acl.forbidden — only the space owner can make the space shareable
+          description: acl.forbidden — the account is neither an admin nor the owner
+            of the space; space.parent_permission_denied — a child the coordinator
+            refused for the role in its parent
         "409":
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
-          description: invite.duplicate — an invite already exists; acl.limit_reached
-            — the owner's plan is at its shared-spaces limit; space.derived_unshareable
-            — a derived space
+          description: invite.duplicate — this device's copy of the ACL holds the
+            space's invite; acl.limit_reached — the owner's plan is at its shared-spaces
+            limit; space.derived_unshareable — a derived space; space.not_pushed —
+            the space's first push has not landed; space.parent_not_available, space.parent_invalid,
+            space.child_limit_reached — a child the coordinator refused
         "500":
           content:
             application/json:
@@ -7883,6 +8412,8 @@ paths:
       - invites
   /spaces/{spaceId}/members:
     get:
+      description: 'The roster with roles, and rotationPending: true while members
+        removed without a read key change still hold the current key.'
       parameters:
       - description: Space ID
         in: path
@@ -10071,6 +10602,61 @@ paths:
       summary: List the changes that became unread on this device after a cursor
       tags:
       - readstate
+  /spaces/{spaceId}/retry-push:
+    post:
+      description: 'For a child whose SpaceInfo.refusal is set, once the cause is
+        gone; left alone, the server asks again by itself, less and less often. 204:
+        the coordinator accepted the space, the refusal is cleared and the space is
+        pushed to the nodes in the background. A refusal answers its own code and
+        is recorded on the row.'
+      parameters:
+      - description: Space ID of the child
+        in: path
+        name: spaceId
+        required: true
+        schema:
+          type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: request.invalid_field — spaceId is not a space id
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: 'space.parent_permission_denied — refused again: the account
+            is below writer in the parent'
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: space.not_found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: space.parent_not_available, space.parent_invalid, space.child_limit_reached
+            — refused again; space.not_child — the account's space list shows the
+            space has no parent; space.not_stored — this device holds no copy of the
+            space; space.deleted; space.not_accepted
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/api.ErrorEnvelope'
+          description: network.unreachable — the coordinator could not be reached;
+            nothing changed
+      summary: Ask the coordinator now to accept a refused child space
+      tags:
+      - spaces
   /spaces/{spaceId}/search:
     post:
       parameters:
@@ -11608,7 +12194,9 @@ paths:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
           description: space.deleted — the space was deleted on this account (any
             token); space.already_member — guest token for a space this account already
-            tracks
+            tracks; acl.not_parent_member — a child space, and this account is not
+            a member of its parent; space.parent_not_available — a child space, and
+            the coordinator cannot read the ACL of its parent
         "410":
           content:
             application/json:

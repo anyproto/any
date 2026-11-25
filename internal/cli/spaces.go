@@ -12,19 +12,45 @@ import (
 )
 
 // `any space ...` — space-level operations that don't fit chat /
-// editor / members / acl. v1 surface covers metadata `update` (rename /
+// editor / members / acl: `create`, metadata `update` (rename /
 // description / icon), `delete`, lookup, sync, and the space-list
-// query/subscribe primitives — `create` / `join` still go through
-// direct HTTP or the web UI.
+// query/subscribe primitives.
 func newSpaceCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "space",
-		Short: "space-level operations (metadata update, lookup)",
+		Short: "space-level operations (create, metadata update, lookup)",
 	}
 
-	cmd.AddCommand(newSpaceGetCmd(), newSpaceUpdateCmd(), newSpaceSettingsCmd(),
-		newSpaceSyncCmd(), newSpaceDeleteCmd(), newSpaceQueryCmd(),
-		newSpaceSubscribeCmd(), newSpaceDerivedCmd())
+	cmd.AddCommand(newSpaceCreateCmd(), newSpaceGetCmd(), newSpaceUpdateCmd(), newSpaceSettingsCmd(),
+		newSpaceSyncCmd(), newSpaceRetryPushCmd(), newSpaceChildrenCmd(), newSpaceDeleteCmd(),
+		newSpaceQueryCmd(), newSpaceSubscribeCmd(), newSpaceDerivedCmd())
+	return cmd
+}
+
+// newSpaceCreateCmd: `any space create [--type T] [--any-space-type S]
+// [--parent <spaceId>]` — POST /v1/spaces (Service.Create;
+// Service.CreateChild with --parent). Prints the new space's SpaceInfo.
+func newSpaceCreateCmd() *cobra.Command {
+	var req api.SpaceCreateRequest
+	cmd := &cobra.Command{
+		Use:   "create [--name N] [--description D] [--icon-cid CID] [--type T] [--any-space-type S] [--parent <spaceId>]",
+		Short: "create a space; --type any.organization creates an organization, --parent a child of one",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cl := newClient(flags.Timeout)
+			out, err := cl.SpaceCreate(cmd.Context(), req)
+			if err != nil {
+				return err
+			}
+			return printJSON(out)
+		},
+	}
+	cmd.Flags().StringVar(&req.Name, "name", "", "display name")
+	cmd.Flags().StringVar(&req.Description, "description", "", "description")
+	cmd.Flags().StringVar(&req.IconCID, "icon-cid", "", "icon CID")
+	cmd.Flags().StringVar(&req.SpaceType, "type", "", "space type: any.space (the default) or any.organization, a space that can have child spaces")
+	cmd.Flags().StringVar(&req.AnySpaceType, "any-space-type", "", "what the account uses the space for, a lowercase slug such as bao; not with --parent")
+	cmd.Flags().StringVar(&req.ParentSpaceId, "parent", "", "create the space as a child of this organization (writer or above in it)")
 	return cmd
 }
 
@@ -288,6 +314,41 @@ func newSpaceSyncCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cl := newClient(flags.Timeout)
 			return cl.SpaceSync(cmd.Context(), args[0])
+		},
+	}
+}
+
+// newSpaceRetryPushCmd: `any space retry-push <spaceId>` — POST
+// /v1/spaces/:id/retry-push (Service.RetryPush): ask the coordinator
+// now to accept a child space it refused. Prints nothing on success; a
+// refusal is the error.
+func newSpaceRetryPushCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "retry-push <spaceId>",
+		Short: "ask the coordinator now to accept a refused child space",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cl := newClient(flags.Timeout)
+			return cl.SpaceRetryPush(cmd.Context(), args[0])
+		},
+	}
+}
+
+// newSpaceChildrenCmd: `any space children <spaceId>` — GET
+// /v1/spaces/:id/children (Service.Children): every child space of a
+// parent, for its admins and owner.
+func newSpaceChildrenCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "children <spaceId>",
+		Short: "list the child spaces of a parent space (its admins and owner)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cl := newClient(flags.Timeout)
+			out, err := cl.SpaceChildren(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			return printJSON(out)
 		},
 	}
 }

@@ -3,18 +3,26 @@ package api
 import "time"
 
 // SpaceCreateRequest is the body of POST /v1/spaces. Mirrors
-// space.CreateRequest.
+// space.CreateRequest, and space.CreateChildRequest when ParentSpaceId
+// is set.
 //
 // AnySpaceType says what the account uses the space for: a lowercase
 // slug such as "bao" for the account's agent space. It is written on
 // the account's own row of the space and read back as
-// SpaceInfo.AnySpaceType; no route changes it afterwards.
+// SpaceInfo.AnySpaceType; no route changes it afterwards. A request
+// that carries it together with ParentSpaceId is refused.
 type SpaceCreateRequest struct {
-	Name         string `json:"name,omitempty"`
-	Description  string `json:"description,omitempty"`
-	IconCID      string `json:"iconCid,omitempty"`
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+	IconCID     string `json:"iconCid,omitempty"`
+	// SpaceType is the type of the space: "any.space", also when empty,
+	// or "any.organization", a space that can have child spaces. With
+	// ParentSpaceId it is "any.organization.space" or empty.
 	SpaceType    string `json:"spaceType,omitempty"`
 	AnySpaceType string `json:"anySpaceType,omitempty"`
+	// ParentSpaceId creates the space as a child of that organization,
+	// which the account holds as a writer, an admin or the owner.
+	ParentSpaceId string `json:"parentSpaceId,omitempty"`
 }
 
 // SpaceOneToOneRequest is the body of POST /v1/spaces/one-to-one. The
@@ -59,8 +67,10 @@ type SpaceRegisterIncomingRequest struct {
 //
 // SpaceType is the app-level classification tag (read from the in-space
 // spaceIndex), distinct from the on-wire header Type: 1-1 spaces carry
-// "any.onetoone", created spaces "any.space". Use it to filter direct chats vs regular
-// spaces client-side. Author is the space owner's
+// "any.onetoone", created spaces their header type, derived spaces a
+// free-text tag. Use it to filter direct chats vs regular spaces
+// client-side; Type tells an organization or one of its child spaces.
+// Author is the space owner's
 // account identity, resolved best-effort from the ACL (empty when the ACL
 // isn't loadable).
 // AnySpaceType says what the account uses the space for, e.g. "bao"
@@ -104,7 +114,44 @@ type SpaceInfo struct {
 	// them with 409 space.derived_undeletable. Absent on created /
 	// joined / 1-1 spaces.
 	Derived bool `json:"derived,omitempty"`
+	// ParentSpaceId is the parent of a child space, as the space header
+	// names it. Absent on a top-level space, and on a joined child
+	// until its first load.
+	ParentSpaceId string `json:"parentSpaceId,omitempty"`
+	// Refusal names what the coordinator refused for the space: the
+	// check a child failed when it was not accepted on the network, or
+	// has_children on a deleted space whose deletion waits for its
+	// children. Synced across the account's devices; absent when
+	// nothing is refused.
+	Refusal string `json:"refusal,omitempty" enums:"parent_not_available,parent_invalid,parent_permission_denied,child_limit_reached,has_children"`
 }
+
+// ChildSpace is a child of a parent space as the coordinator lists it
+// for the parent's admins and owner. Mirrors space.ChildSpace.
+type ChildSpace struct {
+	Id string `json:"id"`
+	// Status is the child's state on the network. A deleted child is
+	// listed as deletion_pending until the coordinator has finished
+	// deleting it, and not at all after that.
+	Status string `json:"status" enums:"active,deletion_pending"`
+}
+
+// SpaceChildrenResponse is the body of GET /v1/spaces/:spaceId/children.
+type SpaceChildrenResponse struct {
+	Children []ChildSpace `json:"children"`
+}
+
+// Child status string values for ChildSpace.Status. Mirror the
+// space.ChildStatus enum 1:1; the children list carries the active and
+// the deletion-pending ones.
+const (
+	ChildStatusUnknown = "unknown"
+	ChildStatusActive  = "active"
+	// ChildStatusDeletionPending: the deletion of the child was
+	// requested and is not finished.
+	ChildStatusDeletionPending = "deletion_pending"
+	ChildStatusDeleted         = "deleted"
+)
 
 // DerivedSpaceInfo is one row of GET /v1/spaces/derived — a registry
 // entry resolved against the account: the deterministic spaceId the
@@ -212,6 +259,26 @@ const (
 	// public access. The local copy stays readable; new content no longer
 	// arrives. Remove with DELETE /v1/spaces/:spaceId.
 	SpaceStatusGuestRevoked = "guest_revoked"
+)
+
+// Space refusal string values for SpaceInfo.Refusal. Mirror the
+// space.Refusal enum; "none" is an absent field.
+const (
+	// SpaceRefusalParentNotAvailable: the parent does not exist on the
+	// network or is deleted.
+	SpaceRefusalParentNotAvailable = "parent_not_available"
+	// SpaceRefusalParentInvalid: the parent is not an organization.
+	// Final.
+	SpaceRefusalParentInvalid = "parent_invalid"
+	// SpaceRefusalParentPermissionDenied: the account is below writer
+	// in the parent.
+	SpaceRefusalParentPermissionDenied = "parent_permission_denied"
+	// SpaceRefusalChildLimitReached: the parent's owner is at its
+	// child-spaces limit.
+	SpaceRefusalChildLimitReached = "child_limit_reached"
+	// SpaceRefusalHasChildren: on a deleted space, its deletion on the
+	// network waits for its child spaces.
+	SpaceRefusalHasChildren = "has_children"
 )
 
 // Space permission string values for SpaceInfo.OwnRole. Mirror the

@@ -30,6 +30,14 @@ type Member struct {
 // MembersListResponse is the body of GET /v1/spaces/:spaceId/members.
 type MembersListResponse struct {
 	Members []Member `json:"members"`
+	// RotationPending reports that members were removed from the space
+	// without a read key change and still hold the current key: they
+	// read what is written until it changes. An admin or the owner of
+	// the parent removes members of a child space this way. A device
+	// of an admin or the owner of this space that holds the space
+	// changes the key by itself, at start and while it runs; the field
+	// reads false once that record is applied here.
+	RotationPending bool `json:"rotationPending"`
 }
 
 // JoinRequest mirrors space.JoinRequestInfo.
@@ -83,6 +91,26 @@ type InvitesListResponse struct {
 type SpaceJoinRequest struct {
 	InviteToken string          `json:"inviteToken"`
 	Metadata    AccountMetadata `json:"metadata,omitempty"`
+}
+
+// ChildMember is an account of a child space as its ACL holds it, read
+// from the parent side. An ACL names accounts by identity: without the
+// child's keys there is no name, description or icon.
+type ChildMember struct {
+	Identity   string `json:"identity"`
+	Permission string `json:"permission" enums:"owner,admin,writer,reader,guest,none"`
+	Status     string `json:"status" enums:"unknown,joining,active,removed,declined,removing,canceled"`
+}
+
+// ChildMembersResponse is the body of GET /v1/children/:childId/members.
+type ChildMembersResponse struct {
+	Members []ChildMember `json:"members"`
+	// RotationPending reports that members removed from the child
+	// still hold its current read key: true from a removal made from
+	// the parent side until an admin or the owner of the child has
+	// changed the key. A child that stays pending has no device of an
+	// admin or the owner left to change it.
+	RotationPending bool `json:"rotationPending"`
 }
 
 // Member event kinds — wire values for MemberEvent.Kind.
@@ -145,8 +173,10 @@ type ACLAddRequest struct {
 	Accounts []ACLAddAccount `json:"accounts"`
 }
 
-// ACLOwnershipRequest is the body of POST /v1/spaces/:spaceId/acl/ownership.
+// ACLOwnershipRequest is the body of POST /v1/spaces/:spaceId/acl/ownership
+// and of POST /v1/children/:childId/acl/ownership.
 type ACLOwnershipRequest struct {
-	NewOwner     string `json:"newOwner"`
-	OldOwnerPerm string `json:"oldOwnerPerm"`
+	NewOwner string `json:"newOwner"`
+	// OldOwnerPerm is the role the previous owner keeps. Required.
+	OldOwnerPerm string `json:"oldOwnerPerm" enums:"reader,writer,admin"`
 }

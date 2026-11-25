@@ -10,6 +10,84 @@ import (
 	"github.com/anyproto/any/internal/api"
 )
 
+// SpaceCreate creates a space of the type req.SpaceType names (POST
+// /v1/spaces → Service.Create), or a child of the organization
+// req.ParentSpaceId when that is set (Service.CreateChild). Creation is
+// local; the network accepts a child when it is first pushed, and
+// SpaceInfo.Refusal names a check it failed. req.AnySpaceType is what
+// the account uses the space for; a child takes none.
+func (c *Client) SpaceCreate(ctx context.Context, req api.SpaceCreateRequest) (*api.SpaceInfo, error) {
+	var out api.SpaceInfo
+	if err := c.do(ctx, http.MethodPost, "/v1/spaces", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// SpaceRetryPush asks the coordinator now to accept a refused child
+// space (POST /v1/spaces/:id/retry-push → Service.RetryPush). Returns
+// 204 when it accepted; a refusal is the error, and SpaceInfo.Refusal
+// names it.
+func (c *Client) SpaceRetryPush(ctx context.Context, spaceId string) error {
+	path := fmt.Sprintf("/v1/spaces/%s/retry-push", url.PathEscape(spaceId))
+	return c.do(ctx, http.MethodPost, path, nil, nil)
+}
+
+// SpaceChildren lists the child spaces of a parent space (GET
+// /v1/spaces/:id/children → Service.Children), the ones this account
+// is no member of included. For an admin or the owner of the parent;
+// needs the network.
+func (c *Client) SpaceChildren(ctx context.Context, spaceId string) (*api.SpaceChildrenResponse, error) {
+	var out api.SpaceChildrenResponse
+	path := fmt.Sprintf("/v1/spaces/%s/children", url.PathEscape(spaceId))
+	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// A child space reached from outside it: these calls take the child's
+// id alone, and the account need not be a member of the child. Each
+// needs the network.
+
+// ChildMembers lists the accounts of a child space with role and
+// status (GET /v1/children/:id/members → Service.ChildMembers). No
+// names: the caller holds no key of the child.
+func (c *Client) ChildMembers(ctx context.Context, childId string) (*api.ChildMembersResponse, error) {
+	var out api.ChildMembersResponse
+	path := fmt.Sprintf("/v1/children/%s/members", url.PathEscape(childId))
+	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// ChildRemoveMembers removes members of a child space as an admin or
+// the owner of its parent (POST /v1/children/:id/acl/remove →
+// Service.RemoveChildMembers). The read key is not changed by the call.
+func (c *Client) ChildRemoveMembers(ctx context.Context, childId string, req api.ACLRemoveRequest) error {
+	path := fmt.Sprintf("/v1/children/%s/acl/remove", url.PathEscape(childId))
+	return c.do(ctx, http.MethodPost, path, req, nil)
+}
+
+// ChildChangeOwner hands a child space to another of its members (POST
+// /v1/children/:id/acl/ownership → Service.ChangeChildOwner). The
+// network accepts it from the owner of the parent and from the child's
+// own owner.
+func (c *Client) ChildChangeOwner(ctx context.Context, childId string, req api.ACLOwnershipRequest) error {
+	path := fmt.Sprintf("/v1/children/%s/acl/ownership", url.PathEscape(childId))
+	return c.do(ctx, http.MethodPost, path, req, nil)
+}
+
+// ChildDelete deletes a child space on the network (DELETE
+// /v1/children/:id → Service.DeleteChild). The network accepts it from
+// the owner of the parent and from the child's own owner. SpaceDelete
+// stays the call for a space of the account's own list.
+func (c *Client) ChildDelete(ctx context.Context, childId string) error {
+	path := fmt.Sprintf("/v1/children/%s", url.PathEscape(childId))
+	return c.do(ctx, http.MethodDelete, path, nil, nil)
+}
+
 // SpaceUpdate patches space metadata (name / description / iconCid).
 // Pointer-to-string semantics — only non-nil fields are touched.
 // Returns 204 on success; the spaceIndex mirror to the local
@@ -42,10 +120,12 @@ func (c *Client) SpaceSync(ctx context.Context, spaceId string) error {
 
 // SpaceDelete deletes a space (DELETE /v1/spaces/:id → Service.Delete).
 // Offline-first: the server writes the synced `deleted` tombstone and
-// offloads local state immediately, while the signed coordinator delete
-// is driven in the background. The tech-space row stays in
-// `Service.List` with `status:"deleted"` (sticky tombstone). Returns 204
-// on success.
+// offloads local state, and the signed coordinator delete is driven in
+// the background. The delete of a top-level space the account owns is
+// first sent to the coordinator when it answers within five seconds:
+// 409 space.has_children while a child space is left, nothing changed.
+// The tech-space row stays in `Service.List` with `status:"deleted"`
+// (sticky tombstone). Returns 204 on success.
 func (c *Client) SpaceDelete(ctx context.Context, spaceId string) error {
 	path := fmt.Sprintf("/v1/spaces/%s", url.PathEscape(spaceId))
 	return c.do(ctx, http.MethodDelete, path, nil, nil)

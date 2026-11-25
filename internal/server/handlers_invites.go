@@ -14,15 +14,16 @@ import (
 
 // inviteCreate handles POST /v1/spaces/:spaceId/invites.
 //
-//	@Summary	Create an invite
-//	@Tags		invites
-//	@Produce	json
-//	@Param		spaceId	path		string	true	"Space ID"
-//	@Success	201		{object}	api.InviteCreateResponse
-//	@Failure	403		{object}	api.ErrorEnvelope	"acl.forbidden — only the space owner can make the space shareable"
-//	@Failure	409		{object}	api.ErrorEnvelope	"invite.duplicate — an invite already exists; acl.limit_reached — the owner's plan is at its shared-spaces limit; space.derived_unshareable — a derived space"
-//	@Failure	500		{object}	api.ErrorEnvelope
-//	@Router		/spaces/{spaceId}/invites [post]
+//	@Summary		Create an invite
+//	@Description	Mints the space's request-to-join invite. A space holds one at a time: a mint while this device's copy of the ACL holds it is 409 invite.duplicate and replaces nothing; revoke it to mint another. A mint beside another mint fails and is safe to repeat.
+//	@Tags			invites
+//	@Produce		json
+//	@Param			spaceId	path		string	true	"Space ID"
+//	@Success		201		{object}	api.InviteCreateResponse
+//	@Failure		403		{object}	api.ErrorEnvelope	"acl.forbidden — the account is neither an admin nor the owner of the space; space.parent_permission_denied — a child the coordinator refused for the role in its parent"
+//	@Failure		409		{object}	api.ErrorEnvelope	"invite.duplicate — this device's copy of the ACL holds the space's invite; acl.limit_reached — the owner's plan is at its shared-spaces limit; space.derived_unshareable — a derived space; space.not_pushed — the space's first push has not landed; space.parent_not_available, space.parent_invalid, space.child_limit_reached — a child the coordinator refused"
+//	@Failure		500		{object}	api.ErrorEnvelope
+//	@Router			/spaces/{spaceId}/invites [post]
 func (d *deps) inviteCreate(c echo.Context) error {
 	sp, errResp, done := d.resolveSpace(c)
 	if done {
@@ -38,7 +39,7 @@ func (d *deps) inviteCreate(c echo.Context) error {
 				"an invite already exists for this space",
 				map[string]any{"spaceId": sp.Id()})
 		}
-		return aclOpError(c, err, map[string]any{"spaceId": sp.Id()})
+		return shareOpError(c, err, "", map[string]any{"spaceId": sp.Id()})
 	}
 	token, err := space.EncodeInvite(inv)
 	if err != nil {
@@ -173,12 +174,12 @@ func (d *deps) inviteRevokeAll(c echo.Context) error {
 // guestKeyCreate handles POST /v1/spaces/:spaceId/guest-key.
 //
 //	@Summary	Create (or return) the space's guest key — public read-only access
-//	@Description	Mints a shared read-only guest identity (ACL guest account) and returns it as an invite token for POST /v1/spaces/join. Idempotent: one active guest key per space; repeated calls return the same token. Owner only.
+//	@Description	Mints a shared read-only guest identity (ACL guest account) and returns it as an invite token for POST /v1/spaces/join. Idempotent: one active guest key per space; repeated calls return the same token. Owner only. An organization and its child spaces have no guest role, and so no guest key.
 //	@Tags		invites
 //	@Produce	json
 //	@Param		spaceId	path		string	true	"Space ID"
 //	@Success	201		{object}	api.InviteCreateResponse
-//	@Failure	409		{object}	api.ErrorEnvelope	"acl.limit_reached — the owner's plan is at its limit of shared spaces or of this space's readers; space.derived_unshareable — a derived space"
+//	@Failure	409		{object}	api.ErrorEnvelope	"acl.no_guest_role — an organization or one of its child spaces, for any caller; acl.limit_reached — the owner's plan is at its limit of shared spaces or of this space's readers; space.derived_unshareable — a derived space; space.not_pushed — the space's first push has not landed"
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/guest-key [post]
 func (d *deps) guestKeyCreate(c echo.Context) error {
@@ -191,7 +192,7 @@ func (d *deps) guestKeyCreate(c echo.Context) error {
 	}
 	inv, err := sp.ACL().CreateGuestKey(c.Request().Context())
 	if err != nil {
-		return aclOpError(c, err, map[string]any{"spaceId": sp.Id()})
+		return shareOpError(c, err, "", map[string]any{"spaceId": sp.Id()})
 	}
 	token, err := space.EncodeInvite(inv)
 	if err != nil {
@@ -211,6 +212,7 @@ func (d *deps) guestKeyCreate(c echo.Context) error {
 //	@Param		spaceId	path	string	true	"Space ID"
 //	@Success	204
 //	@Failure	404	{object}	api.ErrorEnvelope	"No active guest key"
+//	@Failure	409	{object}	api.ErrorEnvelope	"acl.no_guest_role — an organization or one of its child spaces, for any caller"
 //	@Failure	500	{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/guest-key [delete]
 func (d *deps) guestKeyRevoke(c echo.Context) error {
@@ -238,7 +240,7 @@ func (d *deps) guestKeyRevoke(c echo.Context) error {
 //	@Success	201		{object}	api.SpaceInfo			"Joined immediately"
 //	@Success	202		{object}	api.SpaceInfo			"Join pending owner approval (member) or space load pending (guest)"
 //	@Failure	400		{object}	api.ErrorEnvelope
-//	@Failure	409		{object}	api.ErrorEnvelope	"space.deleted — the space was deleted on this account (any token); space.already_member — guest token for a space this account already tracks"
+//	@Failure	409		{object}	api.ErrorEnvelope	"space.deleted — the space was deleted on this account (any token); space.already_member — guest token for a space this account already tracks; acl.not_parent_member — a child space, and this account is not a member of its parent; space.parent_not_available — a child space, and the coordinator cannot read the ACL of its parent"
 //	@Failure	410		{object}	api.ErrorEnvelope	"invite.revoked — the invite was revoked or no longer exists"
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/join [post]
@@ -337,6 +339,11 @@ func (d *deps) spaceJoin(c echo.Context) error {
 	if errors.Is(err, space.ErrInviteNotFound) {
 		return writeError(c, http.StatusGone, "invite.revoked",
 			"the invite was revoked or no longer exists", map[string]any{"spaceId": inv.SpaceId})
+	}
+	// A child space admits only members of its parent: the network
+	// refused the join request, and no row was written.
+	if errors.Is(err, space.ErrNotParentMember) {
+		return aclOpError(c, err, map[string]any{"spaceId": inv.SpaceId})
 	}
 	return aclOpError(c, err, nil)
 }

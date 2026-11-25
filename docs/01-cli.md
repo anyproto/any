@@ -139,11 +139,14 @@ peer id can never re-register. Election contract and decision matrix:
 ### Spaces
 
 ```
+any space create [--name ...] [--description ...] [--icon-cid CID] [--type T] [--any-space-type S] [--parent <spaceId>]   # POST /v1/spaces
 any space get    <spaceId>
 any space update <spaceId> [--name ...] [--description ...] [--icon-cid CID]   # PATCH
 any space settings <spaceId> [--set k=v]... [--set-bool k=true|false]... [--set-num k=N]... [--unset k]...
 any space delete <spaceId> --yes                    # delete a space (irreversible)
 any space sync   <spaceId>                          # force a head-sync round now
+any space retry-push <spaceId>                      # ask the coordinator now to accept a refused child
+any space children <spaceId>                        # the child spaces of a parent (its admins and owner)
 any space derived                                   # list well-known derived spaces (name, spaceId, created)
 any space derived open <name>                       # open one this device holds (creates none)
 any space query      [--filter JSON] [--sort ...] [--limit N] [--offset N] [--total] [--projection ...] [--dataset spaces|profile]
@@ -228,10 +231,65 @@ reclaims local storage (immediately in the normal case; a partial sweep
 failure keeps the storage file so the next boot retries), then drives
 the signed coordinator delete in the background. The row stays in the
 space list with `status:"deleted"` (sticky tombstone), so a subsequent
-`any space query` still shows it.
+`any space query` still shows it. The delete of an organization the
+account owns is first sent to the coordinator, which is waited for at
+most five seconds: while a child space is left it fails with
+`space.has_children` and nothing is changed. Delete the children with
+`any child delete`, then the organization once `any space children`
+lists none.
 
-Creating a space and listing `SpaceInfo` rows have no command
-(`POST /v1/spaces`, `GET /v1/spaces`).
+`any space create` wraps `POST /v1/spaces` and prints the new space's
+`SpaceInfo`. `--type` is the request's `spaceType`: `any.space`, the
+default, or `any.organization`, a space that can have child spaces and
+has no guest role. With `--parent` the space is created as a child of
+that organization (`Service.CreateChild`; `docs/03-api.md` § Child
+spaces): the account is a writer, an admin or the owner of the parent,
+and `--type` is `any.organization.space` or not given. Creation needs
+no network; the network accepts a child when it is first pushed, and
+`refusal` on the row names a check it failed. `--any-space-type` is the
+request's `anySpaceType`, what the account uses the space for
+(`docs/03-api.md` § Spaces); it is not given with `--parent`.
+
+```
+any space create --name Acme --type any.organization
+any space create --name Design --parent <organizationId>
+```
+
+`any space retry-push` wraps `POST /v1/spaces/:id/retry-push`
+(`Service.RetryPush`) for a child whose `refusal` is set. It prints
+nothing when the coordinator accepts the space; a refusal is the error,
+with the code of the failed check.
+
+`any space children` wraps `GET /v1/spaces/:id/children`
+(`Service.Children`): `{children: [{id, status}]}`, every child of the
+parent as the coordinator holds it. It needs the network and the role
+of an admin or the owner in the parent.
+
+Listing `SpaceInfo` rows has no command (`GET /v1/spaces`).
+
+### Child spaces, from the parent side
+
+```
+any child members   <childId>                                 # GET /v1/children/:id/members
+any child remove    <childId> <identity>...                   # POST …/acl/remove (parent's admin or owner)
+any child ownership <childId> --new-owner <identity> --old-owner-perm reader|writer|admin   # POST …/acl/ownership (parent's owner, or the child's own owner)
+any child delete    <childId> --yes                           # DELETE /v1/children/:id (parent's owner, or the child's own owner; irreversible)
+```
+
+These reach a child from outside it and take the child's id alone
+(`docs/03-api.md` § Child spaces): `remove` is for an admin or the
+owner of the parent, `ownership` and `delete` for the owner of the
+parent and for the child's own owner. The account need not
+be a member of the child; each call needs the network. `members` prints
+`{members: [{identity, permission, status}], rotationPending}` with no
+names: the caller holds no key of the child. `remove` does not change
+the read key: a device of an admin or the owner of the child changes it
+by itself, and `rotationPending` reads `true` until it has.
+`ownership` takes the role the previous owner keeps and has no default
+for it. `delete` deletes the child for all its members and refuses to
+run without `--yes`; `any space delete` on a child removes the
+account's own copy unless the account owns the child. `any space
+children <parentId>` lists the ids.
 
 ### One-to-one (direct) spaces
 
@@ -715,6 +773,11 @@ any acl stop-sharing <spaceId>
 `--description` / `--icon-cid` ride the join record. `acl accept`
 grants `writer` unless `--permission` says otherwise; `acl ownership`
 leaves the old owner `admin` unless `--old-owner-perm` says otherwise.
+
+An organization and its child spaces have no guest role: there
+`invite guest-key` and `invite guest-key-revoke` fail with
+`acl.no_guest_role`, and so do `acl accept`, `acl grant` and `acl add`
+at `guest`.
 
 `any acl add` adds accounts **by identity** — the whole comma-separated
 batch lands in one ACL record, and each added account is notified through

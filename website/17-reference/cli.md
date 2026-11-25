@@ -74,11 +74,14 @@ any devices subscribe [same flags]
 ## Spaces
 
 ```
+any space create   [--name N] [--description D] [--icon-cid CID] [--type T] [--any-space-type S] [--parent <spaceId>]   # --type any.organization: an organization; --any-space-type: what the account uses the space for; --parent: a child of that organization, without --any-space-type
 any space get      <spaceId>
 any space update   <spaceId> [--name N] [--description D] [--icon-cid CID]   # unset flag = keep, --name='' = clear
 any space settings <spaceId> [--set k=v]... [--set-bool k=true|false]... [--set-num k=N]... [--unset k]...
 any space delete   <spaceId> --yes
 any space sync     <spaceId>                         # force one head-sync round
+any space retry-push <spaceId>                       # ask the coordinator now to accept a refused child space
+any space children <spaceId>                         # the child spaces of a parent (its admins and owner)
 any space derived                                    # list well-known derived spaces
 any space derived open <name>                        # open one this device holds (creates none)
 any space query      [--dataset spaces|profile] [--filter J] [--sort K] [--limit N] [--offset N] [--total] [--projection P]
@@ -349,9 +352,14 @@ any acl remove       <spaceId> <identity>...
 any acl add          <spaceId> <identity>[,<identity>...] <permission> [--name N] [--description D]
 any acl ownership    <spaceId> --new-owner X [--old-owner-perm P]   # default admin
 any acl self-remove | cancel-join | stop-sharing <spaceId>
+
+any child members   <childId>                                       # a child space from the parent side
+any child remove    <childId> <identity>...                         # parent's admin or owner
+any child ownership <childId> --new-owner X --old-owner-perm P      # parent's owner or the child's own; P = reader | writer | admin
+any child delete    <childId> --yes                                 # parent's owner or the child's own; for every member
 ```
 
-Permissions are `none`, `reader`, `guest`, `writer`, `admin`, `owner`. `any acl add` adds accounts by identity in one ACL record; each added account sees an `invite_pending` row and resolves it with `any invite accept` / `decline`. `--name` / `--description` apply to a single-identity add only.
+Permissions are `none`, `reader`, `guest`, `writer`, `admin`, `owner`. An organization and its child spaces have no `guest` role and no guest key: the commands that name either fail there with `acl.no_guest_role`. `any acl add` adds accounts by identity in one ACL record; each added account sees an `invite_pending` row and resolves it with `any invite accept` / `decline`. `--name` / `--description` apply to a single-identity add only. The `any child` commands take the child's id alone and reach it from outside — see [Child spaces](../collaboration/child-spaces.html) for who the network accepts on each.
 
 ## Sync status, events, processes, push, debug
 

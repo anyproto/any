@@ -36,6 +36,7 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.PATCH("/spaces/:spaceId/settings", d.spaceSettingsPatch)
 	g.DELETE("/spaces/:spaceId", d.spaceDelete)
 	g.POST("/spaces/:spaceId/sync", d.spaceSync)
+	registerChildSpaceRoutes(g, d)
 	g.POST("/spaces/:spaceId/search", d.search)
 
 	g.POST("/spaces/join", d.spaceJoin)
@@ -258,19 +259,25 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 // anySpaceTypeRe is the shape of SpaceCreateRequest.AnySpaceType.
 var anySpaceTypeRe = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 
-// @Summary	Create a space
-// @Tags		spaces
-// @Accept		json
-// @Produce	json
-// @Param		body	body		api.SpaceCreateRequest	true	"Space params"
-// @Success	201		{object}	api.SpaceInfo
-// @Failure	400		{object}	api.ErrorEnvelope
-// @Failure	500		{object}	api.ErrorEnvelope
-// @Router		/spaces [post]
+// @Summary		Create a space
+// @Description	spaceType names the type of the space: any.space, also when empty, or any.organization, a space that can have child spaces. With parentSpaceId the space is created as a child of that organization, of type any.organization.space. Creation is local either way; the network accepts a child when it is first pushed, and SpaceInfo.refusal names a check it failed. anySpaceType says what the account uses the space for and is read back on the space; a request that carries it together with parentSpaceId is refused.
+// @Tags			spaces
+// @Accept			json
+// @Produce		json
+// @Param			body	body		api.SpaceCreateRequest	true	"Space params"
+// @Success		201		{object}	api.SpaceInfo
+// @Failure		400		{object}	api.ErrorEnvelope	"request.invalid_field — spaceType is not any.space or any.organization, or with parentSpaceId not any.organization.space; parentSpaceId is not a space id; anySpaceType is not a lowercase slug of at most 64 characters, or comes with parentSpaceId"
+// @Failure		404		{object}	api.ErrorEnvelope	"space.not_found — the account has no space parentSpaceId"
+// @Failure		409		{object}	api.ErrorEnvelope	"space.parent_invalid — the parent is not an organization; space.deleted, space.not_accepted — the parent is not an accepted space of the account"
+// @Failure		500		{object}	api.ErrorEnvelope
+// @Router			/spaces [post]
 func (d *deps) spaceCreate(c echo.Context) error {
 	req, ok := bindBodyStrict[api.SpaceCreateRequest](c, "")
 	if !ok {
 		return nil
+	}
+	if req.ParentSpaceId != "" {
+		return d.spaceCreateChild(c, req)
 	}
 	if req.AnySpaceType != "" && !anySpaceTypeRe.MatchString(req.AnySpaceType) {
 		return writeError(c, http.StatusBadRequest, "request.invalid_field",
@@ -289,10 +296,40 @@ func (d *deps) spaceCreate(c echo.Context) error {
 		// sending the pre-rename "anytype.space" literal.
 		if errors.Is(err, space.ErrBadSpaceType) {
 			return writeError(c, http.StatusBadRequest, "request.invalid_field",
-				"unsupported spaceType (allowed: any.space or empty)",
+				"unsupported spaceType (allowed: any.space, any.organization or empty; any.organization.space with a parentSpaceId)",
 				map[string]any{"spaceType": req.SpaceType})
 		}
 		return spaceError(c, err, "")
+	}
+	return c.JSON(http.StatusCreated, d.spaceToAPI(c.Request().Context(), sp))
+}
+
+// spaceCreateChild serves POST /v1/spaces with a parentSpaceId —
+// Service.CreateChild. A child has one type, so spaceType names that
+// type or nothing. CreateChild takes no AnySpaceType, so the request
+// carries none.
+func (d *deps) spaceCreateChild(c echo.Context, req *api.SpaceCreateRequest) error {
+	if req.SpaceType != "" && req.SpaceType != space.SpaceTypeOrganizationSpace {
+		return writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"unsupported spaceType with a parentSpaceId (allowed: any.organization.space or empty)",
+			map[string]any{"spaceType": req.SpaceType})
+	}
+	if req.AnySpaceType != "" {
+		return writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"anySpaceType is not accepted with a parentSpaceId",
+			map[string]any{"field": "anySpaceType"})
+	}
+	sp, err := d.sdk.Spaces().CreateChild(c.Request().Context(), space.CreateChildRequest{
+		ParentSpaceId: req.ParentSpaceId,
+		Name:          req.Name,
+		Description:   req.Description,
+		IconCID:       req.IconCID,
+	})
+	if err != nil {
+		if errors.Is(err, space.ErrBadSpaceId) {
+			return badSpaceIdError(c, "parentSpaceId")
+		}
+		return spaceErrorDetails(c, err, map[string]any{"parentSpaceId": req.ParentSpaceId})
 	}
 	return c.JSON(http.StatusCreated, d.spaceToAPI(c.Request().Context(), sp))
 }
@@ -432,7 +469,7 @@ func (d *deps) spaceSync(c echo.Context) error {
 // @Tags		spaces
 // @Param		spaceId	path	string	true	"Space ID"
 // @Success	204
-// @Failure	409	{object}	api.ErrorEnvelope
+// @Failure	409	{object}	api.ErrorEnvelope	"space.has_children — the space still has child spaces; space.derived_undeletable — a derived space"
 // @Failure	500	{object}	api.ErrorEnvelope
 // @Router		/spaces/{spaceId} [delete]
 func (d *deps) spaceDelete(c echo.Context) error {
@@ -671,54 +708,40 @@ func oneToOneError(c echo.Context, err error, field string) error {
 // everything else. As the SDK grows more sentinels we should grow this
 // map (e.g. ErrSpaceExists → 409 space.exists).
 func spaceError(c echo.Context, err error, spaceID string) error {
+	var details map[string]any
+	if spaceID != "" {
+		details = map[string]any{"spaceId": spaceID}
+	}
+	return spaceErrorDetails(c, err, details)
+}
+
+// spaceErrorDetails is spaceError with the details given: the id under
+// the name the request carried it by.
+func spaceErrorDetails(c echo.Context, err error, details map[string]any) error {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return writeError(c, http.StatusServiceUnavailable, "server.unavailable", "request cancelled", nil)
 	}
-	var udet map[string]any
-	if spaceID != "" {
-		udet = map[string]any{"spaceId": spaceID}
+	if resp, done := unsupportedError(c, err, details); done {
+		return resp
 	}
-	if resp, done := unsupportedError(c, err, udet); done {
+	if resp, done := childSpaceError(c, err, details); done {
 		return resp
 	}
 	if errors.Is(err, space.ErrSpaceUnknown) {
-		var details map[string]any
-		if spaceID != "" {
-			details = map[string]any{"spaceId": spaceID}
-		}
 		return writeError(c, http.StatusNotFound, "space.not_found",
 			"space not found", details)
 	}
 	if errors.Is(err, space.ErrSpaceNotAccepted) {
-		var details map[string]any
-		if spaceID != "" {
-			details = map[string]any{"spaceId": spaceID}
-		}
 		return writeError(c, http.StatusConflict, "space.not_accepted",
 			"space join is pending approval; not materialized on this device", details)
 	}
 	if errors.Is(err, space.ErrSpaceDeleted) {
-		var details map[string]any
-		if spaceID != "" {
-			details = map[string]any{"spaceId": spaceID}
-		}
 		return writeError(c, http.StatusConflict, "space.deleted",
 			"space is deleted", details)
 	}
 	if errors.Is(err, space.ErrIsDerivedSpace) {
-		var details map[string]any
-		if spaceID != "" {
-			details = map[string]any{"spaceId": spaceID}
-		}
 		return writeError(c, http.StatusConflict, "space.derived_undeletable",
 			"derived spaces are permanent and cannot be deleted", details)
-	}
-	details := map[string]any{}
-	if spaceID != "" {
-		details["spaceId"] = spaceID
-	}
-	if len(details) == 0 {
-		details = nil
 	}
 	handlerLog.Error("unclassified space error", zap.Error(err))
 	return writeError(c, http.StatusInternalServerError, "internal", "internal error", details)
@@ -739,6 +762,9 @@ func spaceInfoToAPI(info space.SpaceInfo) api.SpaceInfo {
 		CreatedAt:    info.CreatedAt,
 		Settings:     info.Settings,
 		Derived:      info.Derived,
+
+		ParentSpaceId: info.ParentSpaceId,
+		Refusal:       spaceRefusalString(info.Refusal),
 	}
 	if pk := info.PushKeys; pk != nil {
 		out.Push = &api.SpacePushKeys{
@@ -790,6 +816,25 @@ func spaceStatusString(s space.Status) string {
 		return api.SpaceStatusGuestRevoked
 	default:
 		return api.SpaceStatusUnknown
+	}
+}
+
+// spaceRefusalString is the wire label of a refusal; "" for none, so
+// the field is omitted.
+func spaceRefusalString(r space.Refusal) string {
+	switch r {
+	case space.RefusalParentNotAvailable:
+		return api.SpaceRefusalParentNotAvailable
+	case space.RefusalParentInvalid:
+		return api.SpaceRefusalParentInvalid
+	case space.RefusalParentPermissionDenied:
+		return api.SpaceRefusalParentPermissionDenied
+	case space.RefusalChildLimitReached:
+		return api.SpaceRefusalChildLimitReached
+	case space.RefusalHasChildren:
+		return api.SpaceRefusalHasChildren
+	default:
+		return ""
 	}
 }
 

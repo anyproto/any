@@ -27,7 +27,8 @@ curl -s http://127.0.0.1:2046/v1/spaces/$SPACE/members
       "permission": "owner",
       "status": "active",
       "name": "Alice",
-      "iconCid": "…" } ] }
+      "iconCid": "…" } ],
+  "rotationPending": false }
 ```
 
 | Field | Meaning |
@@ -37,6 +38,8 @@ curl -s http://127.0.0.1:2046/v1/spaces/$SPACE/members
 | `status` | the member's ACL state |
 | `name`, `description`, `iconCid` | profile, resolved from the same cache that feeds the [identities directory](../auth/identities.html); join-time metadata is the baseline |
 | `requestRecordId` | present only on a member whose join request is pending — pass it to `POST …/acl/accept` |
+
+`rotationPending` beside the roster is `true` while members removed without a read key change still hold the current key. An admin or the owner of a parent space removes members of a child that way; a device of an admin or the owner of the child that holds it then changes the key by itself, at start and while it runs — see [Child spaces](child-spaces.html#rotation-pending). It is `false` on every other space.
 
 `GET …/members/requests` lists the pending join requests in their own shape — the `recordId` is what `POST …/acl/accept` takes as `requestRecordId`:
 
@@ -59,7 +62,7 @@ any members subscribe <spaceId>
 |-------------|---------|
 | `none` | no access |
 | `reader` | read only |
-| `guest` | read only through the space's shared public guest key |
+| `guest` | read only through the space's shared public guest key; no account holds it in an organization or a [child space](child-spaces.html#no-guest-role) |
 | `writer` | read and write content |
 | `admin` | writer plus member management |
 | `owner` | everything, including ownership transfer and stop-sharing |

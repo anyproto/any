@@ -59,6 +59,8 @@ Short definitions, in roughly the order you meet them. Each links to the page th
 | **ACL** | A space's access-control log: a signed chain of records granting, changing and revoking member permissions and rotating the read key. — [ACL](../collaboration/acl.html) |
 | **Invite / guest key** | A share token a joiner pastes back to request membership; a guest key is the same shape for public read-only access. — [Invites](../collaboration/invites.html) |
 | **One-to-one space** | A direct space between exactly two identities, derived from both keys, with no invite handshake. — [One-to-one](../collaboration/one-to-one.html) |
+| **Organization** | A space of type `any.organization`: a space like any other under which child spaces are created. It is created as one, and neither it nor its children have a guest role. — [Child spaces](../collaboration/child-spaces.html) |
+| **Child space** | A space created under a parent space, an organization, with its own members and read key. The parent's owner and admins list it and remove its members, and the parent's owner hands it over and deletes it; they hold its key only as members of it. — [Child spaces](../collaboration/child-spaces.html) |
 
 ## Programs and agents
 

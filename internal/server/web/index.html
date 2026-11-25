@@ -1614,6 +1614,12 @@
   // by refreshMembers which fans out the three concurrent reads.
   // Cache shape: { members: [...], requests: [...], invites: [...] }.
   const SHARE_PERMS = ['none', 'reader', 'guest', 'writer', 'admin'];
+  // An organization and its child spaces have no guest role.
+  const NO_GUEST_TYPES = ['any.organization', 'any.organization.space'];
+  function sharePerms(sp) {
+    return NO_GUEST_TYPES.includes(sp.info && sp.info.type)
+      ? SHARE_PERMS.filter(p => p !== 'guest') : SHARE_PERMS;
+  }
   // ---------- sync-status + debug loaders ----------
   async function refreshSyncStatusSpace(spaceId) {
     const sp = App.spaces[spaceId]; if (!sp) return;
@@ -2692,7 +2698,7 @@
           const display = r.name ? r.name : '(no name)';
           const permPicker = isAdmin
             ? '<select data-input="accept-perm:' + escapeHTML(r.recordId) + '">' +
-                SHARE_PERMS.map(p =>
+                sharePerms(sp).map(p =>
                   '<option value="' + escapeHTML(p) + '"' +
                     (p === 'writer' ? ' selected' : '') + '>' + escapeHTML(p) + '</option>'
                 ).join('') +
@@ -2740,7 +2746,7 @@
           const canEdit = isAdmin && !isMemberOwner && m.status === 'active';
           const permPicker = canEdit
             ? '<select data-input="member-perm:' + escapeHTML(m.identity) + '">' +
-                SHARE_PERMS.map(p =>
+                sharePerms(sp).map(p =>
                   '<option value="' + escapeHTML(p) + '"' +
                     (p === m.permission ? ' selected' : '') + '>' + escapeHTML(p) + '</option>'
                 ).join('') +
