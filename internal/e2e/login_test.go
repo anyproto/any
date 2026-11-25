@@ -88,7 +88,7 @@ func expectLoginPending(t *testing.T, p *peer, account, when string) {
 }
 
 // TestE2E_LoginOfflineWaits runs the two account paths with no network
-// at all. A created account is open at once and sets up a derived space
+// at all. A created account is open at once and sets up its bao space
 // with a bundle. A login with a phrase waits for the account's first
 // sync, through a restart, and nothing is served meanwhile.
 func TestE2E_LoginOfflineWaits(t *testing.T) {
@@ -112,15 +112,12 @@ func TestE2E_LoginOfflineWaits(t *testing.T) {
 	if got := loginStateOf(t, creator.dataDir); got != "" {
 		t.Fatalf("a created account recorded login state %q", got)
 	}
-	resp, raw := doRequest(t, http.MethodPost, creator.base+"/v1/spaces/derived/bao", "")
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		t.Fatalf("derive bao offline: %d %s", resp.StatusCode, raw)
-	}
 	var sp api.SpaceInfo
-	if err := json.Unmarshal(raw, &sp); err != nil || sp.Id == "" {
-		t.Fatalf("derive bao offline: %v %s", err, raw)
+	mustJSON(t, http.MethodPost, creator.base+"/v1/spaces", `{"name":"Bao","anySpaceType":"bao"}`, http.StatusCreated, &sp)
+	if sp.Id == "" || sp.AnySpaceType != "bao" {
+		t.Fatalf("create the bao space offline: %+v", sp)
 	}
-	resp, raw = doRequest(t, http.MethodPost, creator.base+"/v1/spaces/"+sp.Id+"/bundles",
+	resp, raw := doRequest(t, http.MethodPost, creator.base+"/v1/spaces/"+sp.Id+"/bundles",
 		`{"id":"e2e-offline/v1","name":"Offline","rootType":"page"}`)
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		t.Fatalf("install a bundle offline: %d %s", resp.StatusCode, raw)
@@ -154,7 +151,8 @@ func TestE2E_LoginOfflineWaits(t *testing.T) {
 // TestE2E_LoginOpensAfterFirstSync is the login path with a network.
 // Device B logs in with A's phrase and opens once the account's tech
 // space has synced; from then on it starts at once, with no network
-// either. On the space it downloaded, a bundle read answers only as a
+// either. The space A created for the bao use is in B's list with that
+// use. On the space it downloaded, a bundle read answers only as a
 // definitive one, and B adopts A's install instead of making its own.
 // (That the calls are refused before the registry arrives is pinned
 // offline, in the server's TestBundles_RefusedOnDownloadedSpace.)
@@ -170,7 +168,7 @@ func TestE2E_LoginOpensAfterFirstSync(t *testing.T) {
 	devA := startPeer(t, bin, "devA")
 	defer devA.stop(t)
 	var sp api.SpaceInfo
-	mustJSON(t, http.MethodPost, devA.base+"/v1/spaces", `{"name":"login-e2e"}`, http.StatusCreated, &sp)
+	mustJSON(t, http.MethodPost, devA.base+"/v1/spaces", `{"name":"login-e2e","anySpaceType":"bao"}`, http.StatusCreated, &sp)
 	const install = `{"id":"e2e-login/v1","name":"Login","rootType":"page"}`
 	var onA api.BundleEnsureResponse
 	resp, raw := doRequest(t, http.MethodPost, devA.base+"/v1/spaces/"+sp.Id+"/bundles", install)
@@ -184,6 +182,20 @@ func TestE2E_LoginOpensAfterFirstSync(t *testing.T) {
 	defer func() { devB.stop(t) }()
 	if got := loginStateOf(t, devB.dataDir); got != "complete" {
 		t.Fatalf("devB login state = %q, want complete", got)
+	}
+
+	// The space is in B's list with the use A created it for, whether
+	// or not the space itself has loaded.
+	var rows api.SpaceListResponse
+	mustJSON(t, http.MethodGet, devB.base+"/v1/spaces", "", http.StatusOK, &rows)
+	found := false
+	for _, row := range rows.Spaces {
+		if row.Id == sp.Id {
+			found = row.AnySpaceType == "bao"
+		}
+	}
+	if !found {
+		t.Fatalf("devB does not find the bao space by its use after the login: %+v", rows.Spaces)
 	}
 
 	// The space arrives as a row; its registry never answers as a

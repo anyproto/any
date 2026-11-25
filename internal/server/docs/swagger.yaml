@@ -3116,6 +3116,8 @@ components:
       type: object
     api.SpaceCreateRequest:
       properties:
+        anySpaceType:
+          type: string
         description:
           type: string
         iconCid:
@@ -3216,6 +3218,8 @@ components:
       type: object
     api.SpaceInfo:
       properties:
+        anySpaceType:
+          type: string
         author:
           type: string
         createdAt:
@@ -3223,10 +3227,9 @@ components:
         derived:
           description: |-
             Derived marks a space created by the account's own derivation
-            (POST /v1/spaces/derived/:name or another consumer of the SDK's
-            Derive). Derived spaces are permanent — DELETE refuses them with
-            409 space.derived_undeletable. Absent on created / joined / 1-1
-            spaces.
+            (the SDK's Derive). Derived spaces are permanent — DELETE refuses
+            them with 409 space.derived_undeletable. Absent on created /
+            joined / 1-1 spaces.
           type: boolean
         description:
           type: string
@@ -11506,12 +11509,12 @@ paths:
         schema:
           type: string
       responses:
-        "201":
+        "200":
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/api.SpaceInfo'
-          description: Created
+          description: OK
         "404":
           content:
             application/json:
@@ -11530,7 +11533,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/api.ErrorEnvelope'
           description: Internal Server Error
-      summary: Materialize a well-known derived space
+      summary: Open a well-known derived space this device holds
       tags:
       - spaces
   /spaces/join:

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/labstack/echo/v4"
@@ -27,7 +28,7 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	// (derivedspaces.go) resolved against the account. Static segment,
 	// registered before the :spaceId matcher.
 	g.GET("/spaces/derived", d.derivedSpaceList)
-	g.POST("/spaces/derived/:name", d.derivedSpaceCreate)
+	g.POST("/spaces/derived/:name", d.derivedSpaceOpen)
 	g.GET("/spaces/:spaceId", d.spaceGet)
 	g.PATCH("/spaces/:spaceId", d.spaceUpdate)
 	// Account-private per-space client settings (settings.notifyMode
@@ -254,6 +255,9 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.GET("/spaces/:spaceId/debug/objects/:objectId", d.debugObject)
 }
 
+// anySpaceTypeRe is the shape of SpaceCreateRequest.AnySpaceType.
+var anySpaceTypeRe = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
+
 // @Summary	Create a space
 // @Tags		spaces
 // @Accept		json
@@ -268,11 +272,17 @@ func (d *deps) spaceCreate(c echo.Context) error {
 	if !ok {
 		return nil
 	}
+	if req.AnySpaceType != "" && !anySpaceTypeRe.MatchString(req.AnySpaceType) {
+		return writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"anySpaceType must be a lowercase slug of at most 64 characters",
+			map[string]any{"field": "anySpaceType"})
+	}
 	sp, err := d.sdk.Spaces().Create(c.Request().Context(), space.CreateRequest{
-		Name:        req.Name,
-		Description: req.Description,
-		IconCID:     req.IconCID,
-		SpaceType:   req.SpaceType,
+		Name:         req.Name,
+		Description:  req.Description,
+		IconCID:      req.IconCID,
+		SpaceType:    req.SpaceType,
+		AnySpaceType: req.AnySpaceType,
 	})
 	if err != nil {
 		// SpaceType allow-list rejection. Notably hit by clients still
@@ -716,18 +726,19 @@ func spaceError(c echo.Context, err error, spaceID string) error {
 
 func spaceInfoToAPI(info space.SpaceInfo) api.SpaceInfo {
 	out := api.SpaceInfo{
-		Id:          info.Id,
-		Type:        info.Type,
-		SpaceType:   info.SpaceType,
-		Author:      info.Author,
-		Name:        info.Name,
-		Description: info.Description,
-		IconCID:     info.IconCID,
-		Status:      spaceStatusString(info.Status),
-		OwnRole:     spacePermissionString(info.OwnRole),
-		CreatedAt:   info.CreatedAt,
-		Settings:    info.Settings,
-		Derived:     info.Derived,
+		Id:           info.Id,
+		Type:         info.Type,
+		SpaceType:    info.SpaceType,
+		AnySpaceType: info.AnySpaceType,
+		Author:       info.Author,
+		Name:         info.Name,
+		Description:  info.Description,
+		IconCID:      info.IconCID,
+		Status:       spaceStatusString(info.Status),
+		OwnRole:      spacePermissionString(info.OwnRole),
+		CreatedAt:    info.CreatedAt,
+		Settings:     info.Settings,
+		Derived:      info.Derived,
 	}
 	if pk := info.PushKeys; pk != nil {
 		out.Push = &api.SpacePushKeys{

@@ -3760,6 +3760,9 @@ const docTemplate = `{
             },
             "api.SpaceCreateRequest": {
                 "properties": {
+                    "anySpaceType": {
+                        "type": "string"
+                    },
                     "description": {
                         "type": "string"
                     },
@@ -3869,6 +3872,9 @@ const docTemplate = `{
             },
             "api.SpaceInfo": {
                 "properties": {
+                    "anySpaceType": {
+                        "type": "string"
+                    },
                     "author": {
                         "type": "string"
                     },
@@ -3876,7 +3882,7 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "derived": {
-                        "description": "Derived marks a space created by the account's own derivation\n(POST /v1/spaces/derived/:name or another consumer of the SDK's\nDerive). Derived spaces are permanent — DELETE refuses them with\n409 space.derived_undeletable. Absent on created / joined / 1-1\nspaces.",
+                        "description": "Derived marks a space created by the account's own derivation\n(the SDK's Derive). Derived spaces are permanent — DELETE refuses\nthem with 409 space.derived_undeletable. Absent on created /\njoined / 1-1 spaces.",
                         "type": "boolean"
                     },
                     "description": {
@@ -7766,7 +7772,7 @@ const docTemplate = `{
                     }
                 ],
                 "responses": {
-                    "201": {
+                    "200": {
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -7774,7 +7780,7 @@ const docTemplate = `{
                                 }
                             }
                         },
-                        "description": "Created"
+                        "description": "OK"
                     },
                     "404": {
                         "content": {
@@ -7807,7 +7813,7 @@ const docTemplate = `{
                         "description": "Internal Server Error"
                     }
                 },
-                "summary": "Materialize a well-known derived space",
+                "summary": "Open a well-known derived space this device holds",
                 "tags": [
                     "spaces"
                 ]

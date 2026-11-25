@@ -89,8 +89,8 @@ func readLoginState(t *testing.T, dir string) string {
 }
 
 // A created account is open at once with no network: nothing waits, no
-// login state is written, and a derived space, its bundles registry and
-// an install all work.
+// login state is written, and its bao space, the space's bundles
+// registry and an install all work.
 func TestLogin_CreatedAccountOpensOffline(t *testing.T) {
 	d, e := offlineDeps(t)
 
@@ -106,13 +106,13 @@ func TestLogin_CreatedAccountOpensOffline(t *testing.T) {
 		t.Fatalf("a created account wrote login state %q", got)
 	}
 
-	rec := doJSON(t, e, http.MethodPost, "/v1/spaces/derived/bao", "")
-	if rec.Code != http.StatusOK && rec.Code != http.StatusCreated {
-		t.Fatalf("derive bao offline: %d %s", rec.Code, rec.Body.String())
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces", `{"name":"Bao","anySpaceType":"bao"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create the bao space offline: %d %s", rec.Code, rec.Body.String())
 	}
 	var sp api.SpaceInfo
-	if err := json.Unmarshal(rec.Body.Bytes(), &sp); err != nil || sp.Id == "" {
-		t.Fatalf("derive bao: %v %s", err, rec.Body.String())
+	if err := json.Unmarshal(rec.Body.Bytes(), &sp); err != nil || sp.Id == "" || sp.AnySpaceType != "bao" {
+		t.Fatalf("create the bao space offline: %v %s", err, rec.Body.String())
 	}
 
 	// The registry of a space created here is here: the read answers,
@@ -408,7 +408,7 @@ func TestBundles_RefusedOnDownloadedSpace(t *testing.T) {
 	// The space exists as far as this device knows: the call opens it
 	// and creates nothing.
 	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/derived/"+derived.Spaces[0].Name, "")
-	if rec.Code != http.StatusOK && rec.Code != http.StatusCreated {
+	if rec.Code != http.StatusOK {
 		t.Fatalf("open the downloaded derived space: %d %s", rec.Code, rec.Body.String())
 	}
 
