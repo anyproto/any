@@ -99,6 +99,19 @@ func TestServer_ReadUnknownDataset(t *testing.T) {
 		assertErrorCode(t, rec, "object.not_found")
 	}
 
+	// A subscribe on such an object opens an empty window.
+	absentCtx, absentCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	absent, absentDone := openStream(absentCtx, cl.StreamQuerySubscribe, spaceId, body(noObject, "no-such-dataset", ""))
+	if snap := readSnapshot(t, absent); len(snap.Records) != 0 {
+		t.Errorf("snapshot on an object the space does not have = %d records, want 0", len(snap.Records))
+	}
+	absentCancel()
+	select {
+	case <-absentDone:
+	case <-time.After(5 * time.Second):
+		t.Error("stream on an object the space does not have did not exit after cancel")
+	}
+
 	for name, oid := range map[string]string{"no records": objectId, "another type": foreign} {
 		rec := doJSON(t, e, http.MethodPost, base+"/query", body(oid, declared, `, "includeTotal": true`))
 		if rec.Code != http.StatusOK {
