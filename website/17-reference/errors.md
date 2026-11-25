@@ -141,7 +141,7 @@ Panics are converted to `500 internal` with a generic message.
 
 | Code | Status | Meaning |
 |---|---|---|
-| `dataset.unknown` | 400 | a record write names a storage collection the space does not serve as a records dataset (a module's own is never upsertable); a read of an unknown dataset answers `200 {"records": []}` |
+| `dataset.unknown` | 400 | a record write names a storage collection the space does not serve as a records dataset (a module's own is never upsertable); a per-object read (`…/query[/subscribe]`, `…/aggregate`) names a storage collection the space does not have — one it has reads as empty on an object with no records of it |
 | `dataset.not_declared` | 400 | a write into a storage collection the object's type does not declare — set the declaring type first (collections declare no datasets); also a property value written under an owner the object does not have — set that type or file that collection first |
 | `dataset.not_shared` | 400 | a read across objects (`…/datasets/query[/subscribe]`, `…/datasets/aggregate`) names a dataset that is not declared `shared`, or one the space does not hold (`details.dataset`); read it per object through `…/query` |
 | `dataset.undeletable` | 409 | a record delete (`delete-records`, or a delete op in `modify`) on a dataset declared `deleteBy: none` (`details.dataset`, `details.objectId`): the dataset refuses record deletes; nothing was written and every record stays live |

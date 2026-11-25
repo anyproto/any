@@ -101,10 +101,11 @@ func TestServer_Aggregate_ChatMessages(t *testing.T) {
 		t.Errorf("after delete: n = %d, want 2 (tombstone still aggregated)", group.N)
 	}
 
-	// A never-materialised dataset aggregates to an empty-but-present
-	// records array (`"records": []`, not `{}` and not an error).
+	// A dataset with no records on the object aggregates to an
+	// empty-but-present records array (`"records": []`, not `{}` and not
+	// an error).
 	rec = doJSON(t, e, http.MethodPost, aggPath, fmt.Sprintf(
-		`{"objectId": %q, "dataset": "no-such-dataset", "pipeline": [{"$count": "n"}]}`, objectId))
+		`{"objectId": %q, "dataset": "editor_blocks", "pipeline": [{"$count": "n"}]}`, objectId))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("empty dataset: %d %s", rec.Code, rec.Body.String())
 	}

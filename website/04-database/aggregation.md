@@ -170,6 +170,7 @@ Negative values mean unlimited. There is no spill to disk — filter earlier or 
 |---|---|---|
 | `request.missing_field` | 400 | no `pipeline`, or missing `objectId`/`dataset` on the per-object variant, `dataset` on the shared-dataset one |
 | `dataset.not_shared` | 400 | the shared-dataset variant names a dataset that is not declared `shared` |
+| `dataset.unknown` | 400 | the per-object variant names a dataset the space does not have |
 | `request.schema` | 400 | `pipeline` is not a JSON array |
 | `aggregate.bad_pipeline` | 400 | unparseable pipeline, unknown stage/accumulator, `$text`/vector outside the prefix |
 | `aggregate.limit_exceeded` | 400 | a blocking-stage bound was exceeded — `details.limit` says which |

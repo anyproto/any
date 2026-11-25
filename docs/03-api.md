@@ -2380,6 +2380,8 @@ Three query scopes:
   Reads one of an object's own datasets (`objectId` and `dataset`
   required): a definition object's `properties`, `editor_blocks`,
   `chat_messages`, a runtime `<typeId>_<key>` storage collection, etc.
+  A `dataset` the space does not have is `400 dataset.unknown`; one it
+  has reads as empty on an object with no records of it.
 - `POST /v1/spaces/:spaceId/datasets/query` (+ `/subscribe`) — **a
   shared dataset across its objects** (`dataset` required, no
   `objectId`): every object's records of one runtime dataset declared
