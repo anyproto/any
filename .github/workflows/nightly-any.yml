@@ -1,10 +1,8 @@
 name: nightly-any
 
-# Dogfood channel (cron + manual) → the shared _build-any reusable workflow,
+# Dogfood channel (manual only) → the shared _build-any reusable workflow,
 # publishing a rolling `nightly` prerelease.
 on:
-  schedule:
-    - cron: '30 0 * * *' # 00:30 UTC daily (off-peak minute → fires near on-time)
   workflow_dispatch: {}
 
 permissions:
