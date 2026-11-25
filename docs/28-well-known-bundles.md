@@ -820,8 +820,8 @@ and subscribes to the winner's `entries` — the winner can change
 while two installs converge, and then the subscription moves. Until
 the root's tree has arrived, a read of
 `<rootId>_entries` answers `404 object.not_found`, and until its part
-has, no records: the client shows the defaults and retries the read
-when the space's sync status next reports `synced`
+has, `400 dataset.unknown`: the client shows the defaults and retries
+the read when the space's sync status next reports `synced`
 (`03-api.md` § Sync status). A writer whose write answers
 `400 dataset.unknown` runs the setup again, which fills in a part that
 never arrived.

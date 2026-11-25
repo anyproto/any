@@ -41,12 +41,16 @@ func overviewSetup(t *testing.T, p *peer, spaceId string) api.CatalogSetupBundle
 }
 
 // overviewEntries reads every record of root's `entries`. ok=false
-// while the root's tree has not arrived (404 object.not_found).
+// while the root's tree (404 object.not_found) or its part
+// (400 dataset.unknown) has not arrived.
 func overviewEntries(t *testing.T, p *peer, spaceId, root string) (entries, bool) {
 	t.Helper()
 	resp, raw := doRequest(t, http.MethodPost, p.base+"/v1/spaces/"+spaceId+"/query",
 		`{"objectId":"`+root+`","dataset":"`+root+`_entries","projection":{"_ver":-1}}`)
 	if resp.StatusCode == http.StatusNotFound && errorCode(t, raw) == "object.not_found" {
+		return nil, false
+	}
+	if resp.StatusCode == http.StatusBadRequest && errorCode(t, raw) == "dataset.unknown" {
 		return nil, false
 	}
 	if resp.StatusCode != http.StatusOK {

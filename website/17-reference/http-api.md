@@ -192,9 +192,9 @@ Reads: `POST /v1/spaces/:spaceId/query` with `{"objectId", "dataset": "editor_bl
 
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
-| POST | `/v1/spaces/:spaceId/query` | snapshot body + `objectId`, `dataset` | `{records, total?, hasNext?}` | per-object dataset; `404 object.not_found` |
+| POST | `/v1/spaces/:spaceId/query` | snapshot body + `objectId`, `dataset` | `{records, total?, hasNext?}` | per-object dataset; `404 object.not_found`, `400 dataset.unknown` |
 | POST | `/v1/spaces/:spaceId/query/subscribe` | same + `mailboxCapacity?`, `driftBudgetPercent?` | SSE | frames in [Events](events.html) |
-| POST | `/v1/spaces/:spaceId/aggregate` | `{objectId, dataset, pipeline, …}` | `{records}` \| `{plan}` | snapshot-only |
+| POST | `/v1/spaces/:spaceId/aggregate` | `{objectId, dataset, pipeline, …}` | `{records}` \| `{plan}` | snapshot-only; `400 dataset.unknown` |
 | POST | `/v1/spaces/:spaceId/datasets/query` | snapshot body + `dataset` | `{records, total?, hasNext?}` | a shared dataset across its objects; each record's `id` is `<objectId>/<recordId>`, `_objectId` names its object; `400 dataset.not_shared`, `405 space.unsupported` on the tech space |
 | POST | `/v1/spaces/:spaceId/datasets/query/subscribe` | same + `mailboxCapacity?`, `driftBudgetPercent?` | SSE | a deleted object's records leave as `removed` in batches with an empty `versionId` |
 | POST | `/v1/spaces/:spaceId/datasets/aggregate` | `{dataset, pipeline, …}` | `{records}` \| `{plan}` | snapshot-only; `400 dataset.not_shared` |

@@ -2575,6 +2575,17 @@ a dead id just returns zero rows. Search hits can briefly outlive their
 object (the index evicts asynchronously), so a client following a hit
 into `/query` must treat 404 as "stale hit", not an error.
 
+On an object the space has, `…/query`, `…/query/subscribe` and
+`…/aggregate` answer `400 dataset.unknown` for a `dataset` the space
+does not have: a mistyped name, or one whose declaring part is not on
+this device — not arrived yet, or removed.
+`GET /v1/spaces/:spaceId/datasets` lists a dataset once these reads
+admit it. Records of a removed part stay readable on an object the
+server still holds in memory. A dataset the space has reads as empty
+on an object with no records of it. A subscribe on an object not on
+this device yet opens an empty window, whatever the `dataset`. A
+client following a search hit treats `dataset.unknown` as a stale hit.
+
 #### Snapshot request body (shared by both `…/query` and `…/query/subscribe`)
 
 ```json

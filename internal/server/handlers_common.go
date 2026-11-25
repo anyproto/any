@@ -428,6 +428,15 @@ func sdkOpError(c echo.Context, err error, details map[string]any) error {
 	if errors.Is(err, handler.ErrValidation) {
 		return sdkValidationError(c, err, details)
 	}
+	// A read or a write named a dataset the space does not have.
+	if errors.Is(err, space.ErrDatasetUnknown) {
+		name, _ := details["dataset"].(string)
+		return writeError(c, http.StatusBadRequest, "dataset.unknown",
+			fmt.Sprintf("this space has no dataset %q — check the name (GET /v1/spaces/{spaceId}/datasets "+
+				"lists the space's datasets) or declare it under a part of a type "+
+				"(POST /v1/spaces/{spaceId}/types/{typeId}/parts)", name),
+			details)
+	}
 	if resp, done := unknownDatasetError(c, err, details); done {
 		return resp
 	}
@@ -503,18 +512,17 @@ func crdtVersionDetails(err error, details map[string]any) map[string]any {
 	return out
 }
 
-// unknownDatasetError maps a record write (modify / delete-records /
-// upsert) that names a dataset the target object does not carry to
-// dataset.unknown — a mistyped name or a dataset never declared on the
-// object's type, never a server fault. STOPGAP: matched on message
-// text until the SDK exports the sentinels (spaceobjects
-// "unknown dataset" — no dataset of that name in the space; crdt
-// "no handler for dataset" — declared in the space but not on this
-// object; the SDK-internal guard) — the oneToOneError pattern.
+// unknownDatasetError maps the remaining record-write refusals to
+// dataset.unknown, never a server fault: a dataset the object's
+// controller has no handler for, an upsert that names no records
+// dataset (a mistyped name or a module's collection) and the
+// SDK-internal guard. STOPGAP: the last two are matched on message
+// text ("unknown dataset", "SDK-internal") until the SDK exports
+// sentinels for them.
 func unknownDatasetError(c echo.Context, err error, details map[string]any) (error, bool) {
 	msg := err.Error()
-	if !strings.Contains(msg, "unknown dataset") &&
-		!strings.Contains(msg, "no handler for dataset") &&
+	if !errors.Is(err, handler.ErrUnknownDataset) &&
+		!strings.Contains(msg, "unknown dataset") &&
 		!strings.Contains(msg, "SDK-internal") {
 		return nil, false
 	}
