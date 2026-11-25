@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"testing"
 	"time"
@@ -379,6 +380,281 @@ func TestLogin_InitThenRunWaits(t *testing.T) {
 	st := authStatusOf(t, e)
 	if st.Authorized || st.Login == nil || st.Login.AccountId != account {
 		t.Fatalf("startup boot after init --mnemonic: %+v", st)
+	}
+}
+
+// expectDiscard sends DELETE /v1/auth/login and checks the answer; code
+// is the error code of a refusal.
+func expectDiscard(t *testing.T, e http.Handler, headers map[string]string, status int, code string) {
+	t.Helper()
+	rec := doJSONH(t, e, http.MethodDelete, "/v1/auth/login", "", headers)
+	if rec.Code != status || (code != "" && errEnvCode(t, rec.Body.Bytes()) != code) {
+		t.Fatalf("DELETE /v1/auth/login: %d %s, want %d %s", rec.Code, rec.Body.String(), status, code)
+	}
+}
+
+// Discarding a waiting login ends it and removes what it made: the
+// server is unauthorized with no account on disk, and the same phrase
+// is a login from nothing again.
+func TestLogin_Discard(t *testing.T) {
+	phrase, account := otherMnemonic(t)
+	d, e := offlineDeps(t)
+	body := `{"mnemonic":` + strconv.Quote(phrase) + `}`
+	dir := config.AccountDir(d.root, account)
+
+	expectDiscard(t, e, nil, http.StatusNoContent, "")
+
+	if login := postAuth(t, e, body); login.Login == nil {
+		t.Fatalf("login reply: %+v", login)
+	}
+	expectDiscard(t, e, nil, http.StatusNoContent, "")
+	if st := authStatusOf(t, e); st.Authorized || st.Login != nil || len(st.Accounts) != 0 {
+		t.Fatalf("after the discard: %+v", st)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("the account dir survived the discard: %v", err)
+	}
+	if rec := doJSON(t, e, http.MethodGet, "/v1/spaces", ""); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("GET /v1/spaces after the discard: %d %s, want 401", rec.Code, rec.Body.String())
+	}
+
+	again := postAuth(t, e, body)
+	if !again.Created || again.Login == nil {
+		t.Fatalf("the same phrase after the discard: %+v", again)
+	}
+	if got := readLoginState(t, dir); got != loginStatePending {
+		t.Fatalf("login state = %q, want pending", got)
+	}
+}
+
+// An open account is never discarded: one created here, and a login
+// whose first sync has happened.
+func TestLogin_DiscardRefusesOpenAccount(t *testing.T) {
+	expectKept := func(t *testing.T, d *deps, e http.Handler, account string) {
+		t.Helper()
+		expectDiscard(t, e, nil, http.StatusConflict, "auth.already_authorized")
+		if st := authStatusOf(t, e); !st.Authorized || st.AccountId != account {
+			t.Fatalf("after the refused discard: %+v", st)
+		}
+		if _, err := os.Stat(config.WalletPath(config.Config{}, config.AccountDir(d.root, account))); err != nil {
+			t.Fatalf("the wallet after the refused discard: %v", err)
+		}
+	}
+	t.Run("created", func(t *testing.T) {
+		d, e := offlineDeps(t)
+		expectKept(t, d, e, postAuth(t, e, `{}`).AccountId)
+	})
+	t.Run("login complete", func(t *testing.T) {
+		phrase, account := otherMnemonic(t)
+		d, e := offlineDeps(t)
+		d.firstSync = func(context.Context, *anysyncsdk.SDK) error { return nil }
+		postAuth(t, e, `{"mnemonic":`+strconv.Quote(phrase)+`}`)
+		waitAuthorized(t, e, account)
+		expectKept(t, d, e, account)
+	})
+	// The first sync is recorded before the account opens; a discard
+	// between the two leaves the login to open.
+	t.Run("first sync recorded", func(t *testing.T) {
+		phrase, account := otherMnemonic(t)
+		d, e := offlineDeps(t)
+		synced := make(chan struct{})
+		d.firstSync = func(ctx context.Context, _ *anysyncsdk.SDK) error {
+			select {
+			case <-synced:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+		postAuth(t, e, `{"mnemonic":`+strconv.Quote(phrase)+`}`)
+		if err := writeLoginState(config.AccountDir(d.root, account), loginStateComplete); err != nil {
+			t.Fatal(err)
+		}
+		expectDiscard(t, e, nil, http.StatusConflict, "auth.already_authorized")
+		if st := authStatusOf(t, e); st.Authorized || st.Login == nil {
+			t.Fatalf("after the refused discard: %+v", st)
+		}
+		close(synced)
+		waitAuthorized(t, e, account)
+		expectKept(t, d, e, account)
+	})
+}
+
+// An account opens only after its login state reads complete: while
+// the write fails the account stays closed, so a dir that reads pending
+// never held an open account.
+func TestLogin_StaysClosedUntilStateIsWritten(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs a directory the test cannot write to")
+	}
+	phrase, account := otherMnemonic(t)
+	d, e := offlineDeps(t)
+	synced := make(chan struct{})
+	d.firstSync = func(ctx context.Context, _ *anysyncsdk.SDK) error {
+		select {
+		case <-synced:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	dir := config.AccountDir(d.root, account)
+	postAuth(t, e, `{"mnemonic":`+strconv.Quote(phrase)+`}`)
+
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	close(synced)
+	time.Sleep(2 * loginStateRetryInterval)
+	if st := authStatusOf(t, e); st.Authorized || st.Login == nil {
+		t.Fatalf("the account opened with its login state unwritten: %+v", st)
+	}
+	if got := readLoginState(t, dir); got != loginStatePending {
+		t.Fatalf("login state = %q, want pending", got)
+	}
+
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	waitAuthorized(t, e, account)
+	if got := readLoginState(t, dir); got != loginStateComplete {
+		t.Fatalf("login state = %q, want complete", got)
+	}
+}
+
+// A removal that fails part way leaves a dir that still reads as a
+// waiting login: the same phrase waits for the first sync again.
+func TestLogin_DiscardRemovalFailsPartWay(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs a directory the test cannot remove from")
+	}
+	phrase, account := otherMnemonic(t)
+	d, e := offlineDeps(t)
+	body := `{"mnemonic":` + strconv.Quote(phrase) + `}`
+	dir := config.AccountDir(d.root, account)
+	postAuth(t, e, body)
+
+	if err := os.Chmod(sdkDataDir(dir), 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(sdkDataDir(dir), 0o700) })
+	expectDiscard(t, e, nil, http.StatusInternalServerError, "internal")
+	if st := authStatusOf(t, e); st.Authorized || st.Login != nil {
+		t.Fatalf("after the failed removal: %+v", st)
+	}
+	if got := readLoginState(t, dir); got != loginStatePending {
+		t.Fatalf("login state after the failed removal = %q, want pending", got)
+	}
+
+	if err := os.Chmod(sdkDataDir(dir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if again := postAuth(t, e, body); again.Login == nil {
+		t.Fatalf("the same phrase after the failed removal opened at once: %+v", again)
+	}
+	expectDiscard(t, e, nil, http.StatusNoContent, "")
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("the account dir survived the second discard: %v", err)
+	}
+}
+
+// A login is discarded only from an account dir that is its own and
+// whose state reads pending: anything else may hold an account that was
+// open, so the login keeps waiting and nothing is removed.
+func TestLogin_DiscardRefusesWhatIsNotItsOwn(t *testing.T) {
+	expectWaiting := func(t *testing.T, e http.Handler, keyPath string) {
+		t.Helper()
+		expectDiscard(t, e, nil, http.StatusConflict, "auth.login_not_discardable")
+		if st := authStatusOf(t, e); st.Authorized || st.Login == nil {
+			t.Fatalf("after the refused discard: %+v", st)
+		}
+		if _, err := os.Stat(keyPath); err != nil {
+			t.Fatalf("the wallet after the refused discard: %v", err)
+		}
+	}
+	t.Run("unreadable state", func(t *testing.T) {
+		d, e := offlineDeps(t)
+		created := postAuth(t, e, `{}`)
+		d.teardownEngine(logger.NewNamed("test"), api.SubscribeClosedServerShutdown)
+		dir := config.AccountDir(d.root, created.AccountId)
+		if err := os.WriteFile(loginStatePath(dir), []byte("{"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if again := postAuth(t, e, `{"mnemonic":`+strconv.Quote(created.Mnemonic)+`}`); again.Login == nil {
+			t.Fatalf("boot with an unreadable login state: %+v", again)
+		}
+		expectWaiting(t, e, config.WalletPath(config.Config{}, dir))
+	})
+	// A server that kept no login state opened the account here: the
+	// device has its row in the registry.
+	t.Run("device registered", func(t *testing.T) {
+		d, e := offlineDeps(t)
+		created := postAuth(t, e, `{}`)
+		deadline := time.Now().Add(20 * time.Second)
+		for {
+			if registered, err := deviceRegistered(d.eng); err == nil && registered {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("the open account never registered its device")
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		d.teardownEngine(logger.NewNamed("test"), api.SubscribeClosedServerShutdown)
+		dir := config.AccountDir(d.root, created.AccountId)
+		if err := writeLoginState(dir, loginStatePending); err != nil {
+			t.Fatal(err)
+		}
+		if again := postAuth(t, e, `{"mnemonic":`+strconv.Quote(created.Mnemonic)+`}`); again.Login == nil {
+			t.Fatalf("boot with a pending login state: %+v", again)
+		}
+		expectWaiting(t, e, config.WalletPath(config.Config{}, dir))
+	})
+	t.Run("data flat at the root", func(t *testing.T) {
+		phrase, _ := otherMnemonic(t)
+		d, e := offlineDeps(t)
+		walletPath := config.WalletPath(config.Config{}, d.root)
+		if err := MarkLoginPending(d.root, walletPath); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := OpenWallet(walletPath, "", phrase, auth.DefaultAccountIndex); err != nil {
+			t.Fatal(err)
+		}
+		identity, err := ResolveIdentity(d.cfg, d.root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := d.bootAccount(identity, fileCredential(d.cfg, identity.WalletPath, walletSeed{})); err != nil {
+			t.Fatal(err)
+		}
+		expectWaiting(t, e, walletPath)
+	})
+}
+
+// On a managed server the discard is the host's, like every auth verb.
+func TestLogin_DiscardManagedNeedsToken(t *testing.T) {
+	phrase, account := otherMnemonic(t)
+	d := newUnauthorizedDeps(t)
+	network, _ := placeholderNetwork(t)
+	d.cfg.Network = network
+	d.cfg.Mode = config.ModeManaged
+	d.controlToken = "tok"
+	e := buildEcho(d)
+	tok := map[string]string{api.ControlTokenHeader: "tok"}
+	dir := config.AccountDir(d.root, account)
+
+	rec := doJSONH(t, e, http.MethodPost, "/v1/auth", `{"mnemonic":`+strconv.Quote(phrase)+`}`, tok)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("login: %d %s", rec.Code, rec.Body.String())
+	}
+	expectDiscard(t, e, nil, http.StatusForbidden, "control.forbidden")
+	if st := authStatusOf(t, e); st.Login == nil {
+		t.Fatalf("the login after a discard without the token: %+v", st)
+	}
+	expectDiscard(t, e, tok, http.StatusNoContent, "")
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("the account dir survived the discard: %v", err)
 	}
 }
 

@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"go.uber.org/zap"
 
@@ -42,23 +44,63 @@ func sdkDataDir(dir string) string { return filepath.Join(dir, "sdk") }
 // first sync. A file that cannot be read counts as pending: waiting for
 // one more sync is the safe reading, and the sync rewrites the file.
 func loginPending(dir string) bool {
-	raw, err := os.ReadFile(loginStatePath(dir))
-	if errors.Is(err, os.ErrNotExist) {
-		return false
-	}
-	var env loginStateEnvelope
-	if err == nil {
-		err = json.Unmarshal(raw, &env)
-	}
+	state, err := recordedLoginState(dir)
 	switch {
-	case err == nil && env.State == loginStateComplete:
+	case errors.Is(err, os.ErrNotExist), state == loginStateComplete:
 		return false
-	case err == nil && env.State == loginStatePending:
+	case state == loginStatePending:
 		return true
 	}
 	engineLog.Warn("login state unreadable — waiting for the account's first sync again",
 		zap.String("path", loginStatePath(dir)), zap.Error(err))
 	return true
+}
+
+// recordedLoginState is the state dir's login.json records: pending or
+// complete. Anything else is an error, os.ErrNotExist for no file.
+func recordedLoginState(dir string) (string, error) {
+	raw, err := os.ReadFile(loginStatePath(dir))
+	if err != nil {
+		return "", err
+	}
+	var env loginStateEnvelope
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return "", err
+	}
+	if env.State != loginStatePending && env.State != loginStateComplete {
+		return "", fmt.Errorf("unknown login state %q", env.State)
+	}
+	return env.State, nil
+}
+
+// removeLoginDir removes a discarded login's account dir: its data
+// first, then its keys, the login state last. A removal that fails part
+// way leaves a dir that still reads as a waiting login, never one that
+// opens without its first sync.
+func removeLoginDir(dir string) error {
+	last := []string{
+		filepath.Base(config.WalletPath(config.Config{}, dir)),
+		filepath.Base(deviceKeyPath(dir)),
+		loginStateFile,
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if slices.Contains(last, e.Name()) {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(dir, e.Name())); err != nil {
+			return err
+		}
+	}
+	for _, name := range last {
+		if err := os.Remove(filepath.Join(dir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return os.Remove(dir)
 }
 
 // LoginPending is loginPending for the CLI.

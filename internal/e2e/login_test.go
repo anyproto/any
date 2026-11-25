@@ -90,7 +90,8 @@ func expectLoginPending(t *testing.T, p *peer, account, when string) {
 // TestE2E_LoginOfflineWaits runs the two account paths with no network
 // at all. A created account is open at once and sets up its bao space
 // with a bundle. A login with a phrase waits for the account's first
-// sync, through a restart, and nothing is served meanwhile.
+// sync, through a restart, and nothing is served meanwhile. Discarding
+// the login leaves a server with no account, which a create then opens.
 func TestE2E_LoginOfflineWaits(t *testing.T) {
 	if testing.Short() {
 		t.Skip("boots servers; rerun without -short")
@@ -146,6 +147,29 @@ func TestE2E_LoginOfflineWaits(t *testing.T) {
 	device.stop(t)
 	bootWithConfig(t, bin, device, cfg)
 	expectLoginPending(t, device, created.AccountId, "after restart")
+
+	// --- Discard: the login and what it made are gone. ---
+	mustJSON(t, http.MethodDelete, device.base+"/v1/auth/login", "", http.StatusNoContent, nil)
+	var st api.AuthStatusResponse
+	mustJSON(t, http.MethodGet, device.base+"/v1/auth", "", http.StatusOK, &st)
+	if st.Authorized || st.Login != nil || len(st.Accounts) != 0 {
+		t.Fatalf("after the discard: auth status %+v login %+v", st, st.Login)
+	}
+	if left, _ := filepath.Glob(filepath.Join(device.dataDir, created.AccountId, "*")); len(left) != 0 {
+		t.Fatalf("the discard left %v", left)
+	}
+	device.stop(t)
+	bootWithConfig(t, bin, device, cfg)
+	mustJSON(t, http.MethodGet, device.base+"/v1/auth", "", http.StatusOK, &st)
+	if st.Authorized || st.Login != nil {
+		t.Fatalf("a restart after the discard: auth status %+v login %+v", st, st.Login)
+	}
+	var fresh api.AuthResponse
+	mustJSON(t, http.MethodPost, device.base+"/v1/auth", `{}`, http.StatusOK, &fresh)
+	if fresh.AccountId == created.AccountId || fresh.Login != nil {
+		t.Fatalf("create after the discard: %+v", fresh)
+	}
+	waitForAuthorized(t, device.base, 5*time.Second)
 }
 
 // TestE2E_LoginOpensAfterFirstSync is the login path with a network.

@@ -129,7 +129,7 @@ func buildEcho(d *deps) *echo.Echo {
 	// (shutdown, logout, account switch) drains it before the engine
 	// fields change — SDK-backed handlers see one engine for their
 	// whole lifetime and never a nil sdk. Without one, every /v1 route
-	// except the meta set and /v1/auth itself rejects with 401
+	// except the meta set and the /v1/auth routes rejects with 401
 	// auth.required — 503 auth.login_pending while the engine is a
 	// login waiting for its first sync. Group middleware applies to
 	// routes registered after Use — keep this above the route
@@ -141,7 +141,7 @@ func buildEcho(d *deps) *echo.Echo {
 	v1.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			switch c.Path() {
-			case "/v1/health", "/v1/shutdown", "/v1/openapi.json", "/v1/auth", "/v1/local-discovery":
+			case "/v1/health", "/v1/shutdown", "/v1/openapi.json", "/v1/auth", "/v1/auth/login", "/v1/local-discovery":
 				return next(c)
 			case "/v1/*":
 				// Unmatched route — echo's not-found pattern. Pass it

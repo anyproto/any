@@ -5041,6 +5041,59 @@
                 ]
             }
         },
+        "/auth/login": {
+            "delete": {
+                "parameters": [
+                    {
+                        "description": "managed servers: the control token",
+                        "in": "header",
+                        "name": "X-Any-Control-Token",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Discard a login that waits for its first sync",
+                "tags": [
+                    "auth"
+                ]
+            }
+        },
         "/backlinks": {
             "get": {
                 "parameters": [

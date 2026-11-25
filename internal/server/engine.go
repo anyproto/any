@@ -174,6 +174,9 @@ var (
 	errAlreadyAuthorized = errors.New("already authorized")
 	errAccountMismatch   = errors.New("another account is running")
 	errAccountHeld       = errors.New("account resources still held by its previous session")
+	// errLoginNotDiscardable means the waiting login's account dir may
+	// hold more than the login made, so discardLogin leaves it.
+	errLoginNotDiscardable = errors.New("login cannot be discarded")
 )
 
 // walletSeed carries the inputs for CREATING a wallet: the BIP-39
@@ -576,12 +579,107 @@ func (d *deps) awaitLogin(ctx context.Context, eng *engine) {
 	if err != nil {
 		return
 	}
-	if err := writeLoginState(eng.dir, loginStateComplete); err != nil {
-		// The account opens anyway; its next boot waits for a sync again.
-		engineLog.Warn("login state not written", zap.Error(err))
+	// The account opens only once its state reads complete: a dir that
+	// reads pending is one that never opened, which discardLogin relies on.
+	for {
+		err := writeLoginState(eng.dir, loginStateComplete)
+		if err == nil {
+			break
+		}
+		engineLog.Warn("login state not written — the account stays closed until it is", zap.Error(err))
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(loginStateRetryInterval):
+		}
 	}
 	engineLog.Info("login complete: the account's tech space has synced", zap.String("account", eng.account))
 	d.openEngine(eng)
+}
+
+// loginStateRetryInterval is how often a login whose first sync has
+// happened retries the write of its state.
+const loginStateRetryInterval = time.Second
+
+// deviceRegistryReadTimeout bounds deviceRegistered's local read.
+const deviceRegistryReadTimeout = 5 * time.Second
+
+// deviceRegistered reports whether the account's device registry holds
+// this device's row. registerDevice writes it when an account opens, so
+// a waiting login that has one was opened here by a server that kept no
+// login state.
+func deviceRegistered(eng *engine) (bool, error) {
+	ctx, cancel := context.WithTimeout(eng.ctx, deviceRegistryReadTimeout)
+	defer cancel()
+	devices, err := eng.sdk.Spaces().ListDevices(ctx)
+	if err != nil {
+		return false, err
+	}
+	self := eng.sdk.PeerId()
+	for _, dev := range devices {
+		if dev.PeerId == self {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// discardLogin ends a login that waits for its first sync and removes
+// its account dir: the keys, the data and the state the login made on
+// this device. The login never opened, so the dir holds nothing the
+// account's other devices lack. No-op without an engine;
+// errAlreadyAuthorized for an account that is open or whose first sync
+// has just been recorded, whose data is never removed.
+// errLoginNotDiscardable when the dir is not the login's alone (an
+// explicit wallet, data flat at the root), its login state is
+// unreadable, or the device is in the account's registry or that
+// registry cannot be read: such a dir may hold an account that was open.
+func (d *deps) discardLogin(lg logger.CtxLogger) error {
+	d.authMu.Lock()
+	defer d.authMu.Unlock()
+	eng := d.eng
+	if eng == nil {
+		return nil
+	}
+	if !eng.loginPending || d.ready.Load() {
+		return errAlreadyAuthorized
+	}
+	if eng.dir != config.AccountDir(d.root, eng.account) {
+		return errLoginNotDiscardable
+	}
+	if registered, err := deviceRegistered(eng); err != nil || registered {
+		// A login that opened meanwhile has registered its device.
+		if d.ready.Load() {
+			return errAlreadyAuthorized
+		}
+		return errLoginNotDiscardable
+	}
+	// Decided under openMu, and done set with it: a first sync landing
+	// now finds the engine closed and never opens it.
+	d.openMu.Lock()
+	if d.ready.Load() {
+		d.openMu.Unlock()
+		return errAlreadyAuthorized
+	}
+	switch state, _ := recordedLoginState(eng.dir); state {
+	case loginStatePending:
+	case loginStateComplete:
+		// awaitLogin has recorded the first sync and opens next.
+		d.openMu.Unlock()
+		return errAlreadyAuthorized
+	default:
+		d.openMu.Unlock()
+		return errLoginNotDiscardable
+	}
+	eng.done.Store(true)
+	d.openMu.Unlock()
+
+	lg.Info("discarding a login that waits for its first sync", zap.String("account", eng.account))
+	d.teardownEngineLocked(lg, api.SubscribeClosedDeauthorized)
+	if dirHeld(eng.dir) {
+		return errAccountHeld
+	}
+	return removeLoginDir(eng.dir)
 }
 
 // loginWait is what GET /v1/auth and health report about a login that
