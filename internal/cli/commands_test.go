@@ -109,7 +109,7 @@ func TestNoWeightFlag(t *testing.T) {
 func TestChildSpaceCommands(t *testing.T) {
 	root := newRootCmd()
 	for path, flags := range map[string][]string{
-		"space create":     {"name", "description", "icon-cid", "type", "parent"},
+		"space create":     {"name", "description", "icon-cid", "type", "any-space-type", "parent"},
 		"space retry-push": nil,
 		"space children":   nil,
 		"child members":    nil,
@@ -130,8 +130,9 @@ func TestChildSpaceCommands(t *testing.T) {
 	}
 }
 
-// TestSpaceCreateFlags: `space create` posts --type as spaceType and
-// --parent as parentSpaceId, and neither when the flag is not given.
+// TestSpaceCreateFlags: `space create` posts --type as spaceType,
+// --any-space-type as anySpaceType and --parent as parentSpaceId, and
+// none of them when the flag is not given.
 func TestSpaceCreateFlags(t *testing.T) {
 	addr, calls := cliServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -143,6 +144,7 @@ func TestSpaceCreateFlags(t *testing.T) {
 		{"space", "create", "--name", "Acme", "--type", "any.organization"},
 		{"space", "create", "--name", "Design", "--parent", "org1"},
 		{"space", "create", "--parent", "org1", "--type", "any.organization.space"},
+		{"space", "create", "--name", "Bao", "--any-space-type", "bao"},
 	} {
 		if _, err := runCLI(t, addr, args...); err != nil {
 			t.Fatalf("%v: %v", args, err)
@@ -153,6 +155,7 @@ func TestSpaceCreateFlags(t *testing.T) {
 		{http.MethodPost, "/v1/spaces", map[string]any{"name": "Acme", "spaceType": "any.organization"}},
 		{http.MethodPost, "/v1/spaces", map[string]any{"name": "Design", "parentSpaceId": "org1"}},
 		{http.MethodPost, "/v1/spaces", map[string]any{"parentSpaceId": "org1", "spaceType": "any.organization.space"}},
+		{http.MethodPost, "/v1/spaces", map[string]any{"name": "Bao", "anySpaceType": "bao"}},
 	}
 	if got := calls(); !reflect.DeepEqual(got, want) {
 		t.Errorf("requests = %+v\nwant %+v", got, want)

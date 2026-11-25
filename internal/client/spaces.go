@@ -14,7 +14,8 @@ import (
 // /v1/spaces → Service.Create), or a child of the organization
 // req.ParentSpaceId when that is set (Service.CreateChild). Creation is
 // local; the network accepts a child when it is first pushed, and
-// SpaceInfo.Refusal names a check it failed.
+// SpaceInfo.Refusal names a check it failed. req.AnySpaceType is what
+// the account uses the space for; a child takes none.
 func (c *Client) SpaceCreate(ctx context.Context, req api.SpaceCreateRequest) (*api.SpaceInfo, error) {
 	var out api.SpaceInfo
 	if err := c.do(ctx, http.MethodPost, "/v1/spaces", req, &out); err != nil {

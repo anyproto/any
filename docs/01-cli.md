@@ -139,7 +139,7 @@ peer id can never re-register. Election contract and decision matrix:
 ### Spaces
 
 ```
-any space create [--name ...] [--description ...] [--icon-cid CID] [--type T] [--parent <spaceId>]   # POST /v1/spaces
+any space create [--name ...] [--description ...] [--icon-cid CID] [--type T] [--any-space-type S] [--parent <spaceId>]   # POST /v1/spaces
 any space get    <spaceId>
 any space update <spaceId> [--name ...] [--description ...] [--icon-cid CID]   # PATCH
 any space settings <spaceId> [--set k=v]... [--set-bool k=true|false]... [--set-num k=N]... [--unset k]...
@@ -246,7 +246,9 @@ that organization (`Service.CreateChild`; `docs/03-api.md` § Child
 spaces): the account is a writer, an admin or the owner of the parent,
 and `--type` is `any.organization.space` or not given. Creation needs
 no network; the network accepts a child when it is first pushed, and
-`refusal` on the row names a check it failed.
+`refusal` on the row names a check it failed. `--any-space-type` is the
+request's `anySpaceType`, what the account uses the space for
+(`docs/03-api.md` § Spaces); it is not given with `--parent`.
 
 ```
 any space create --name Acme --type any.organization

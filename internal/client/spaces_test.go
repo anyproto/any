@@ -24,6 +24,10 @@ func TestChildSpaceRoutes(t *testing.T) {
 			_, err := cl.SpaceCreate(ctx, api.SpaceCreateRequest{Name: "Acme", SpaceType: "any.organization"})
 			return err
 		}, call{http.MethodPost, "/v1/spaces", `{"name":"Acme","spaceType":"any.organization"}`}},
+		{"create a space for a use", func(cl *Client) error {
+			_, err := cl.SpaceCreate(ctx, api.SpaceCreateRequest{Name: "Bao", AnySpaceType: "bao"})
+			return err
+		}, call{http.MethodPost, "/v1/spaces", `{"name":"Bao","anySpaceType":"bao"}`}},
 		{"create a child", func(cl *Client) error {
 			_, err := cl.SpaceCreate(ctx, api.SpaceCreateRequest{Name: "Design", ParentSpaceId: "parent"})
 			return err

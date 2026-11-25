@@ -74,7 +74,7 @@ any devices subscribe [same flags]
 ## Spaces
 
 ```
-any space create   [--name N] [--description D] [--icon-cid CID] [--type T] [--parent <spaceId>]   # --type any.organization: an organization; --parent: a child of that organization
+any space create   [--name N] [--description D] [--icon-cid CID] [--type T] [--any-space-type S] [--parent <spaceId>]   # --type any.organization: an organization; --any-space-type: what the account uses the space for; --parent: a child of that organization, without --any-space-type
 any space get      <spaceId>
 any space update   <spaceId> [--name N] [--description D] [--icon-cid CID]   # unset flag = keep, --name='' = clear
 any space settings <spaceId> [--set k=v]... [--set-bool k=true|false]... [--set-num k=N]... [--unset k]...
