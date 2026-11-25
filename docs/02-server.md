@@ -59,7 +59,8 @@ string: `GET /v1/auth` reports the operations the server accepts as
 `capabilities` bits (`03-api.md` § Auth).
 
 **Control token.** A managed server accepts `POST`/`DELETE /v1/auth`,
-`POST /v1/shutdown` and `PUT /v1/local-discovery` only with the
+`DELETE /v1/auth/login`, `POST /v1/shutdown` and
+`PUT /v1/local-discovery` only with the
 `X-Any-Control-Token` header —
 otherwise any same-user process on the loopback could log it into a
 different account or stop it. A CLI-spawned managed server mints the
@@ -163,8 +164,11 @@ account is standalone-only — a managed login with its phrase lands in
    embedder may fetch its model meanwhile). Once the account's tech space has
    synced from a sync node or from another device of the account
    reached directly, `login.json` says `complete` and the engine
-   opens. A pending login survives a restart and waits again, with or
-   without a network; a completed one starts at once, offline too. An
+   opens, in that order: an account never opens while the file reads
+   `pending`. A pending login survives a restart and waits again, with or
+   without a network; a completed one starts at once, offline too.
+   `DELETE /v1/auth/login` discards a pending login: the engine is torn
+   down and the account dir removed (`03-api.md` § Auth). An
    account dir without `login.json` — created here, or from before the
    file existed — is complete, and a `login.json` that cannot be read
    counts as pending. Local tech-space storage is not the

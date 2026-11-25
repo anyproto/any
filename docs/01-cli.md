@@ -27,6 +27,7 @@ any run [--config PATH] [--data-dir DIR] [--mode standalone|managed] [--account 
                                  # start the server (foreground; --addr is the bind address)
 any auth login [--mnemonic ...|--mnemonic-stdin|--account ID] [--index N] [--replace]  # POST /v1/auth
 any auth logout                  # DELETE /v1/auth (managed servers)
+any auth discard                 # DELETE /v1/auth/login — end a login that waits for its first sync, remove what it made
 any auth status                  # GET /v1/auth
 any status                       # GET /v1/health
 any stop [--data-dir DIR] [--config PATH] [--account ID]

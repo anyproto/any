@@ -70,7 +70,8 @@ request.unsupported_media_type   # 415 — a body whose Content-Type is missing 
 
 auth.required                    # 401 — server unauthorized; POST /v1/auth first
 auth.login_pending               # 503 — a login waits for the account's first sync; poll GET /v1/auth
-auth.already_authorized          # 409 — `{}` while an account runs; a fresh account is never minted in place
+auth.already_authorized          # 409 — `{}` while an account runs (a fresh account is never minted in place), or DELETE /v1/auth/login on an open account
+auth.login_not_discardable       # 409 — DELETE /v1/auth/login: the waiting login's dir may hold an account that was open (not a dir of its own: explicit wallet, data flat at the root; login.json unreadable; the device is in the account's registry, or the registry is unreadable); nothing is removed
 auth.not_managed                 # 403 — standalone server: a different account on POST, or DELETE (switching = restart)
 auth.account_mismatch            # 409 — managed server runs another account; pass replace:true to switch
 auth.bad_mnemonic                # 400 — BIP-39 validation failed

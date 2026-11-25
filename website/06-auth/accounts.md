@@ -117,6 +117,8 @@ The same account is always a no-op — a retry never drops your streams, and `al
 
 `DELETE /v1/auth` (managed, control token) signs out in place: the engine is torn down, streams end with `deauthorized`, and the server stays up unauthorized. Delete the stored phrase too, or the account is not actually signed out on that device.
 
+`DELETE /v1/auth/login` cancels a login that still waits for its first sync, in either mode (a managed server needs the control token). The server ends the login and removes what it made on this device: the account dir with its keys, data and state. The login never opened, so nothing is lost; the server stays up unauthorized and the same phrase is a login from nothing again. Call it while `GET /v1/auth` reports `login`: with no account running it answers `204` and removes nothing. An account that is open is never discarded: the call answers `409 auth.already_authorized`.
+
 CLI equivalents:
 
 ```bash
@@ -125,6 +127,7 @@ any auth login --mnemonic-stdin           # log in
 any auth login --account A8g1…            # select (standalone)
 ANY_CONTROL_TOKEN=… any auth login --mnemonic-stdin --replace   # switch (managed)
 ANY_CONTROL_TOKEN=… any auth logout       # DELETE /v1/auth (managed)
+any auth discard                          # DELETE /v1/auth/login: cancel a login that waits for its first sync
 any auth status                           # GET /v1/auth
 ```
 

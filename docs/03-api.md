@@ -247,6 +247,7 @@ and a client shows "upgrade required" off this field. See
 | GET    | `/v1/auth`  | authorization state, ownership mode + capabilities, local accounts      |
 | POST   | `/v1/auth`  | create an account, log in to one with its phrase, or select a local one, boot SDK; `replace` switches; `409 sdk.crdt_version_newer` for an account a newer release wrote |
 | DELETE | `/v1/auth`  | tear the account down in place, stay up unauthorized (managed only)     |
+| DELETE | `/v1/auth/login` | discard a login that waits for its first sync: end it and remove what it made on this device |
 
 A server started without a resolvable account (fresh data dir, several
 accounts and no selector, or **any managed server** — see `02-server.md`
@@ -401,6 +402,30 @@ idempotent. A client must then delete its stored credential, or the
 account is not actually signed out on that device. A standalone server
 answers `403 auth.not_managed`: sign out by stopping it.
 
+**`DELETE /v1/auth/login`** discards a login that waits for its first
+sync; it is how a client cancels the wait, in either mode (a managed
+server needs the control token). It ends the login and removes what the
+login made on this device: the account dir with its keys, data and
+state. The login never opened, so nothing is lost: an account opens
+only after `login.json` says `complete`. The server stays up
+unauthorized, a standalone one no longer lists the account, and the
+same phrase is a login from nothing again. `204`. It acts on the login
+that is waiting in this server: with no account running it answers
+`204` and removes nothing, so a client calls it while `GET /v1/auth`
+reports `login`. An account that is open is never discarded
+(`409 auth.already_authorized`), and a first sync that lands during the
+call either opens the account, with that `409`, or loses to the
+discard. `409 auth.login_not_discardable` when the waiting login does
+not live in an account dir of its own (an explicit wallet path, data
+flat at the root), its `login.json` cannot be read, or the device
+already has its row in the account's device registry (a server that
+predates the login state opened the account here; a registry that
+cannot be read counts as such): such a dir may hold an account that was
+open, so the server removes nothing and the login keeps waiting. A removal that fails part way (`500 internal`; or
+`409 auth.account_in_use` while a request of an earlier session still
+holds the dir) ends the login and leaves a dir that still reads as a
+waiting login, never as an open account.
+
 Errors: `503 auth.login_pending` (on every guarded route while a login
 waits for the account's first sync; `GET /v1/auth` reports the wait),
 `400 auth.bad_mnemonic` (BIP-39 validation),
@@ -408,8 +433,10 @@ waits for the account's first sync; `GET /v1/auth` reports the wait),
 without mnemonic, `replace` without a credential, `accountId` on a
 managed server), `403 control.forbidden` (managed, token missing or
 wrong), `403 auth.not_managed` (standalone: a different account, or
-DELETE), `409 auth.account_mismatch` (managed: a different account
-without `replace`), `409 auth.already_authorized` (`{}` while
+`DELETE /v1/auth`), `409 auth.account_mismatch` (managed: a different account
+without `replace`), `409 auth.login_not_discardable` (above),
+`409 auth.already_authorized` (`DELETE /v1/auth/login` on an open
+account; `{}` while
 authorized), `404 auth.account_not_found` (accountId without a local
 wallet), `409 auth.account_in_use` (another process holds that
 account's single-instance lock, `details.pid` naming it when known, or

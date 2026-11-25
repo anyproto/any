@@ -38,6 +38,7 @@ any run  [--config PATH] [--data-dir PATH] [--mode standalone|managed] [--accoun
          [--log-level debug|info|warn|error]
 any auth login [--mnemonic …|--mnemonic-stdin|--account ID] [--index N] [--replace]   # POST /v1/auth
 any auth logout                                                   # DELETE /v1/auth (managed)
+any auth discard                                                  # DELETE /v1/auth/login: cancel a waiting login
 any auth status                                                   # GET /v1/auth
 any status                                                        # GET /v1/health
 any stop [--config PATH] [--data-dir PATH] [--account ID]         # signal the server holding the account lock

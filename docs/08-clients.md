@@ -999,11 +999,13 @@ auth UI may offer. These rules are normative for every client:
    routes answer `503 auth.login_pending`. Show a "waiting for sync"
    screen driven by `login.sync` and the peer counts — `offline` means
    nothing to sync from is connected — poll `GET /v1/auth` until
-   `authorized`, and offer a way to cancel (`DELETE /v1/auth` where the
-   capability allows). Start nothing that works on the account before
-   then. The wait can outlast the app: a login cut off before its first
-   sync waits again on the next launch, so the same screen is where a
-   launch lands when `GET /v1/auth` reports `login`.
+   `authorized`, and offer a cancel: `DELETE /v1/auth/login`, called
+   while `login` is reported, discards the login and what it made on
+   the device, so forget the account after it. Start nothing that works
+   on the account before then. The wait can outlast the app: a login
+   cut off before its first sync waits again on the next launch, so the
+   same screen is where a launch lands when `GET /v1/auth` reports
+   `login`.
 10. **Re-read the bound address after any lifecycle transition.** A
     `:0` server gets a different port on respawn.
 11. **Never treat loopback as authenticated.** Any same-user process can
