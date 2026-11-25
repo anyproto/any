@@ -195,10 +195,10 @@ One call does, in order:
    minus the ones this space does not walk (§ Superseding), so the same
    usecase answers a different bundle list in a space that has a
    superseded bundle than in one that does not.
-2. **One registry-convergence wait** for the whole list — the same
-   wait a single ensure runs (30s with a peer connected, 3s with none;
-   instant when already synced). The first bundle that needs the
-   verdict pays it, the rest reuse it.
+2. **One pass of the registry gate** for the whole list — the same
+   gate a single ensure runs: a local check that the space's registry
+   has reached this device (in a 1-1, the bounded convergence wait).
+   The first bundle that needs the verdict pays it, the rest reuse it.
 3. **Adopt-or-install per bundle.** A live winner is adopted — a pure
    read, so a reader member gets the ids too; a writer's adopt also
    heals what the root lacks (§ Evolution). Otherwise the server checks
@@ -221,15 +221,18 @@ dependencies it installed, names the failing step in
 `details.usecase` / `details.bundleId`, and the next call resumes from
 the registry's state.
 
-Who may do what: when the wait cannot complete, the space's **owner**
-installs anyway (only this account's own devices could compete, and
-the registry converges those), and so does every member for the
-derived chat (its root cannot fork); a member whose space index has
-never arrived is `409 bundle.not_ready` and retries when the network
-is back. A member that holds the index installs against its local
-view, so two members setting up while one is apart, or at the same
-moment, fork and resolve (§ Forks) — a space set up by its owner
-before sharing spares joiners both. A
+Who may do what: on a space whose registry has not reached this device
+— a space it joined or that another device of the account created,
+before the index has synced — setup is `409 bundle.not_ready` for
+everyone, the owner and the derived chat included; retry once the
+space has synced. A space created on this device has its registry from
+creation, so its setup never waits, offline either. A device that
+holds the index installs against its local view, so two members
+setting up while one is apart, or at the same moment, fork and resolve
+(§ Forks) — a space set up by its owner before sharing spares joiners
+both. In a 1-1, where the index is never seeded, setup waits for the
+registry to converge (bounded), and when that expires the derived chat
+installs anyway while a created root is refused. A
 member without write permission adopts but cannot install (`403` on
 the install path). The create-and-register section runs detached from
 the request, bounded by shutdown and two minutes for the whole walk,
@@ -237,8 +240,9 @@ so a client that disconnects mid-walk cannot leave an orphan root.
 
 Which usecases a space has is read off the space's bundle list — every
 bundle of a set-up usecase has a row under its `system:` id
-(`GET …/bundles`, locked on convergence, `synced` says whether absence
-is definitive) — mapped to usecases through the catalog. The reply of
+(`GET …/bundles`, which answers only once the space's registry has
+reached this device, so absence is definitive) — mapped to usecases
+through the catalog. The reply of
 a setup is the convenient form of the same information.
 
 ## Handles
@@ -434,15 +438,13 @@ xKey with a bundle that supersedes it, which is the point: every
 space, resolving to the type in one and to the collection in the
 other. It is one step only: a superseded bundle supersedes nothing.
 
-"Has none" is only true of a converged registry. A member reading an
-unsynced one would install the new set next to the bundle it stands in
-for, and the two share a handle. So when a group has neither an old
-nor a new bundle present locally, setup runs the
-registry-convergence wait before it decides, and an expired wait is
-answered as the install gate answers it: the space's owner proceeds,
-a member whose index has never arrived gets the retryable
-`409 bundle.not_ready`. A group
-settled either way waits for nothing.
+"Has none" is only true of a registry that has reached this device. A
+device reading an empty stand-in would install the new set next to the
+bundle it stands in for, and the two share a handle. So when a group
+has neither an old nor a new bundle present locally, setup runs the
+registry gate before it decides, and answers as the install gate
+does: the retryable `409 bundle.not_ready` until the space's registry
+has arrived. A group settled either way checks nothing.
 
 A client reads which shape a space has from the reply, or from the
 registry: the bundle id it finds installed, and whether that bundle
@@ -612,7 +614,7 @@ runs `POST /v1/catalog/library-rows/setup` when it adds the first
 row, and two writers doing so apart fork and merge (below). A row
 goes back with `removed: false`. Every
 member watches the registry (`GET …/bundles/system%3Alibrary-rows%2Fv1`,
-locked on convergence; `synced: false` makes an absence provisional)
+`409 bundle.not_ready` until the registry has reached this device)
 and subscribes to the winner's `<rootId>_rows` once its tree has
 arrived; no bundle means no rows. Two writers that set it up while
 apart mint two roots: the client that observes the loser upserts each
@@ -813,7 +815,7 @@ loser's entry is `removed: true`. A value naming the loser
 `<rootId>_entries` holds the whole Overview live, for readers too.
 Every member keeps watching the registry (the `bundles` dataset on
 `spaceIndexObjectId`, or `GET …/bundles/system%3Aoverview%2Fv1`,
-locked on convergence; `synced: false` makes an absence provisional)
+`409 bundle.not_ready` until the registry has reached this device)
 and subscribes to the winner's `entries` — the winner can change
 while two installs converge, and then the subscription moves. Until
 the root's tree has arrived, a read of

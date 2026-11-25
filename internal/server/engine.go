@@ -55,6 +55,14 @@ type engine struct {
 	// indexer. Per engine: the schema chunker keeps per-space catalog
 	// state that must not carry over to the next account.
 	chunkers *index.Registry
+	// loginPending marks a login that has not seen the account's first
+	// sync (loginstate.go): the engine is published closed and opens
+	// once the tech space has synced.
+	loginPending bool
+	// startWork starts what works on the account's data: the device
+	// registry refresh, the indexer and push. Run once, when the engine
+	// opens — never against a tech space a login has not synced yet.
+	startWork func()
 
 	// ctx bounds every goroutine and SSE stream that belongs to this
 	// engine; cancelling it is the first step of teardown. Streams
@@ -62,9 +70,9 @@ type engine struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	// wg tracks the engine's own goroutines (registerDevice, the push
-	// kick, the standing process interest, the derived-setup pass,
-	// bundle loser retries) so teardown can join them before closing
-	// the SDK they read.
+	// kick, the standing process interest, a login's wait for its
+	// first sync, bundle loser retries) so teardown can join them
+	// before closing the SDK they read.
 	wg sync.WaitGroup
 
 	mu sync.Mutex
@@ -75,8 +83,9 @@ type engine struct {
 	// procRelease drops the standing account-scope pub/sub interest
 	// for process.* broadcasts (acquired by holdProcessInterest).
 	procRelease func()
-	// done flips once the engine's resources are closed; late indexer
-	// frames from a torn-down engine are dropped past it.
+	// done flips as the first step of a teardown, and again once the
+	// resources are closed: late indexer frames from a torn-down engine
+	// are dropped past it, and a waiting login never opens past it.
 	done atomic.Bool
 }
 
@@ -165,6 +174,9 @@ var (
 	errAlreadyAuthorized = errors.New("already authorized")
 	errAccountMismatch   = errors.New("another account is running")
 	errAccountHeld       = errors.New("account resources still held by its previous session")
+	// errLoginNotDiscardable means the waiting login's account dir may
+	// hold more than the login made, so discardLogin leaves it.
+	errLoginNotDiscardable = errors.New("login cannot be discarded")
 )
 
 // walletSeed carries the inputs for CREATING a wallet: the BIP-39
@@ -247,6 +259,7 @@ func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identit
 	eng.lock = lock
 	eng.dir = id.Dir
 	eng.chunkers = NewIndexRegistry()
+	eng.loginPending = loginPending(id.Dir)
 	// Everything opened from here belongs to the engine: on failure
 	// closeResources releases it in order (goroutines, indexer, push,
 	// SDK, lock), and a dir this call created for freshly minted keys
@@ -291,14 +304,6 @@ func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identit
 		}
 	}
 
-	// Refresh this device's registry row (SYN-165): os/version are
-	// server-stamped so every boot keeps them current; the display name
-	// is seeded from the hostname only while the row carries none so a
-	// user-set name is never clobbered. Best-effort — the registry is
-	// convenience metadata and must never block boot — and deferred
-	// until the SDK's bootstrap pass completes (see registerDevice).
-	eng.spawn(func(ctx context.Context) { registerDevice(ctx, sdk) })
-
 	if cfg.Index.Enabled {
 		var hook func(indexer.ProcessUpdate)
 		if onProcess != nil {
@@ -313,31 +318,6 @@ func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identit
 			return nil, fmt.Errorf("open indexer: %w", err)
 		}
 		eng.indexer = ix
-		ix.Start(eng.ctx)
-	}
-
-	// Push notifications: only when config names a push node (the SDK
-	// side was threaded by OpenSDK under the same gate). Token file
-	// lives in the per-account dir; Start never fails boot — a
-	// persisted token re-registers in the background.
-	if cfg.Push.Active() {
-		ps := push.New(sdk, id.Dir)
-		eng.push = ps
-		ps.Start(eng.ctx)
-		// The first subscription sync can run before the SDK's background
-		// boot pass materializes offline-created chats; kick a re-sync once
-		// the pass completes so healing doesn't wait for the periodic tick.
-		// sdk.Close also closes BootstrapDone, so re-check the ctx after
-		// waking: a teardown must not kick a closing service.
-		eng.spawn(func(ctx context.Context) {
-			select {
-			case <-sdk.BootstrapDone():
-				if ctx.Err() == nil {
-					ps.Kick()
-				}
-			case <-ctx.Done():
-			}
-		})
 	}
 
 	// Local store: device-local, non-CRDT collections in the SDK's
@@ -352,6 +332,46 @@ func bootEngine(ctx context.Context, cfg config.Config, root string, id *Identit
 		return nil, fmt.Errorf("resolve derived spaces: %w", err)
 	}
 	eng.derived = derived
+
+	eng.startWork = func() {
+		// Refresh this device's registry row: os/version are
+		// server-stamped so every boot keeps them current; the display
+		// name is seeded from the hostname only while the row carries
+		// none so a user-set name is never clobbered. Best-effort — the
+		// registry is convenience metadata and must never block boot —
+		// and deferred until the SDK's bootstrap pass completes (see
+		// registerDevice).
+		eng.spawn(func(ctx context.Context) { registerDevice(ctx, sdk) })
+
+		if eng.indexer != nil {
+			eng.indexer.Start(eng.ctx)
+		}
+
+		// Push notifications: only when config names a push node (the
+		// SDK side was threaded by OpenSDK under the same gate). Token
+		// file lives in the per-account dir; Start never fails — a
+		// persisted token re-registers in the background.
+		if cfg.Push.Active() {
+			ps := push.New(sdk, id.Dir)
+			eng.push = ps
+			ps.Start(eng.ctx)
+			// The first subscription sync can run before the SDK's
+			// background boot pass materializes offline-created chats;
+			// kick a re-sync once the pass completes so healing doesn't
+			// wait for the periodic tick. sdk.Close also closes
+			// BootstrapDone, so re-check the ctx after waking: a
+			// teardown must not kick a closing service.
+			eng.spawn(func(ctx context.Context) {
+				select {
+				case <-sdk.BootstrapDone():
+					if ctx.Err() == nil {
+						ps.Kick()
+					}
+				case <-ctx.Done():
+				}
+			})
+		}
+	}
 	return eng, nil
 }
 
@@ -481,33 +501,240 @@ func (d *deps) switchAccount(id *Identity, open credential) (*engine, error) {
 	return eng, err
 }
 
-// publishEngine installs a booted engine on d and opens the gate. The
-// field stores happen before ready flips; the guard's atomic load is
-// the acquire edge that makes them visible to handlers.
+// publishEngine installs a booted engine on d and opens it — at once,
+// or for a login that has not seen the account's first sync, once that
+// sync has happened (awaitLogin). The field stores happen before ready
+// flips; the guard's atomic load is the acquire edge that makes them
+// visible to handlers.
 func (d *deps) publishEngine(eng *engine) {
 	d.eng = eng
 	d.sdk = eng.sdk
 	d.indexer = eng.indexer
-	d.push = eng.push
 	d.local = eng.local
 	d.account = eng.account
 	d.signKey = eng.signKey
 	d.derived = eng.derived
 	d.shutdownCtx = eng.ctx
 	d.gate.reset()
+	if d.boundAddr != "" && eng.lock != nil {
+		writeAddrFile(eng.dir, d.boundAddr)
+	}
+	if !eng.loginPending {
+		d.openEngine(eng)
+		return
+	}
+	engineLog.Info("login waits for the account's first sync", zap.String("account", eng.account))
+	d.login.Store(newLoginWait(eng))
+	// As in openEngine: a local-discovery statement that landed while
+	// this engine booted is applied now that the wait is published.
+	d.applyLocalDiscovery()
+	eng.spawn(func(ctx context.Context) { d.awaitLogin(ctx, eng) })
+}
+
+// openEngine starts the engine's account work and opens the gate. Runs
+// under authMu for a boot that opens at once, and on an engine goroutine
+// for a login whose first sync has just happened — openMu keeps that one
+// from opening an engine a teardown has already begun to close.
+func (d *deps) openEngine(eng *engine) {
+	d.openMu.Lock()
+	if eng.done.Load() {
+		d.openMu.Unlock()
+		return
+	}
+	if eng.startWork != nil {
+		eng.startWork()
+		eng.startWork = nil
+	}
+	d.push = eng.push
+	// ready before the wait is cleared: a request never finds neither.
 	d.ready.Store(true)
+	d.login.Store(nil)
+	eng.spawn(func(context.Context) { d.holdProcessInterest(eng) })
+	d.openMu.Unlock()
 	// A statement that landed during the boot reached the booting
 	// engine through bootingSDK; one that lands between that pointer
 	// being cleared and ready flipping is applied now, after ready.
 	d.applyLocalDiscovery()
-	if d.boundAddr != "" && eng.lock != nil {
-		writeAddrFile(eng.dir, d.boundAddr)
+}
+
+// awaitLogin holds a login closed until the account's tech space has
+// synced once from a sync node or a direct peer, records that in the
+// account dir, and opens the engine. A login cut off before that — the
+// engine torn down, the process killed — waits again on its next boot.
+// An engine goroutine: it must not take authMu.
+func (d *deps) awaitLogin(ctx context.Context, eng *engine) {
+	sampled := make(chan struct{})
+	sampleCtx, stopSampling := context.WithCancel(ctx)
+	go func() {
+		defer close(sampled)
+		d.sampleLogin(sampleCtx, eng)
+	}()
+	wait := d.firstSync
+	if wait == nil {
+		wait = func(ctx context.Context, sdk *anysyncsdk.SDK) error { return sdk.Spaces().WaitListSynced(ctx) }
 	}
-	eng.spawn(func(context.Context) { d.holdProcessInterest(eng) })
-	// Restore side of the setup split: adopt the installs of the
-	// well-known derived spaces this account already has
-	// (derivedsetup.go). Never creates a space; never blocks serving.
-	eng.spawn(func(ctx context.Context) { d.bootstrapDerivedSetups(ctx, eng) })
+	err := wait(ctx, eng.sdk)
+	stopSampling()
+	<-sampled
+	if err != nil {
+		return
+	}
+	// The account opens only once its state reads complete: a dir that
+	// reads pending is one that never opened, which discardLogin relies on.
+	for {
+		err := writeLoginState(eng.dir, loginStateComplete)
+		if err == nil {
+			break
+		}
+		engineLog.Warn("login state not written — the account stays closed until it is", zap.Error(err))
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(loginStateRetryInterval):
+		}
+	}
+	engineLog.Info("login complete: the account's tech space has synced", zap.String("account", eng.account))
+	d.openEngine(eng)
+}
+
+// loginStateRetryInterval is how often a login whose first sync has
+// happened retries the write of its state.
+const loginStateRetryInterval = time.Second
+
+// deviceRegistryReadTimeout bounds deviceRegistered's local read.
+const deviceRegistryReadTimeout = 5 * time.Second
+
+// deviceRegistered reports whether the account's device registry holds
+// this device's row. registerDevice writes it when an account opens, so
+// a waiting login that has one was opened here by a server that kept no
+// login state.
+func deviceRegistered(eng *engine) (bool, error) {
+	ctx, cancel := context.WithTimeout(eng.ctx, deviceRegistryReadTimeout)
+	defer cancel()
+	devices, err := eng.sdk.Spaces().ListDevices(ctx)
+	if err != nil {
+		return false, err
+	}
+	self := eng.sdk.PeerId()
+	for _, dev := range devices {
+		if dev.PeerId == self {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// discardLogin ends a login that waits for its first sync and removes
+// its account dir: the keys, the data and the state the login made on
+// this device. The login never opened, so the dir holds nothing the
+// account's other devices lack. No-op without an engine;
+// errAlreadyAuthorized for an account that is open or whose first sync
+// has just been recorded, whose data is never removed.
+// errLoginNotDiscardable when the dir is not the login's alone (an
+// explicit wallet, data flat at the root), its login state is
+// unreadable, or the device is in the account's registry or that
+// registry cannot be read: such a dir may hold an account that was open.
+func (d *deps) discardLogin(lg logger.CtxLogger) error {
+	d.authMu.Lock()
+	defer d.authMu.Unlock()
+	eng := d.eng
+	if eng == nil {
+		return nil
+	}
+	if !eng.loginPending || d.ready.Load() {
+		return errAlreadyAuthorized
+	}
+	if eng.dir != config.AccountDir(d.root, eng.account) {
+		return errLoginNotDiscardable
+	}
+	if registered, err := deviceRegistered(eng); err != nil || registered {
+		// A login that opened meanwhile has registered its device.
+		if d.ready.Load() {
+			return errAlreadyAuthorized
+		}
+		return errLoginNotDiscardable
+	}
+	// Decided under openMu, and done set with it: a first sync landing
+	// now finds the engine closed and never opens it.
+	d.openMu.Lock()
+	if d.ready.Load() {
+		d.openMu.Unlock()
+		return errAlreadyAuthorized
+	}
+	switch state, _ := recordedLoginState(eng.dir); state {
+	case loginStatePending:
+	case loginStateComplete:
+		// awaitLogin has recorded the first sync and opens next.
+		d.openMu.Unlock()
+		return errAlreadyAuthorized
+	default:
+		d.openMu.Unlock()
+		return errLoginNotDiscardable
+	}
+	eng.done.Store(true)
+	d.openMu.Unlock()
+
+	lg.Info("discarding a login that waits for its first sync", zap.String("account", eng.account))
+	d.teardownEngineLocked(lg, api.SubscribeClosedDeauthorized)
+	if dirHeld(eng.dir) {
+		return errAccountHeld
+	}
+	return removeLoginDir(eng.dir)
+}
+
+// loginWait is what GET /v1/auth and health report about a login that
+// waits for its first sync: the account, and the tech space's sync
+// state as sampleLogin last read it. Handlers on those exempt routes
+// read the sample instead of the SDK, which a teardown may be closing.
+type loginWait struct {
+	// sdk is the waiting engine's SDK, for the local-discovery switch:
+	// a direct peer is one of the two ways the wait ends.
+	sdk  *anysyncsdk.SDK
+	sync atomic.Pointer[api.LoginState]
+}
+
+func newLoginWait(eng *engine) *loginWait {
+	w := &loginWait{sdk: eng.sdk}
+	w.sync.Store(&api.LoginState{AccountId: eng.account, Sync: space.SyncStateUnknown.String()})
+	return w
+}
+
+// loginSampleInterval is how often a waiting login's sync state is read.
+const loginSampleInterval = time.Second
+
+// sampleLogin keeps the waiting login's reported sync state current.
+func (d *deps) sampleLogin(ctx context.Context, eng *engine) {
+	w := d.login.Load()
+	if w == nil {
+		return
+	}
+	t := time.NewTicker(loginSampleInterval)
+	defer t.Stop()
+	for {
+		st := eng.sdk.Spaces().Status(eng.sdk.TechSpaceId())
+		w.sync.Store(&api.LoginState{
+			AccountId:    eng.account,
+			Sync:         st.State.String(),
+			NetworkPeers: st.NetworkPeers,
+			LocalPeers:   st.LocalPeers,
+			GlobalPeers:  st.GlobalPeers,
+		})
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+	}
+}
+
+// loginState is the waiting login as the API reports it; nil when none
+// waits.
+func (d *deps) loginState() *api.LoginState {
+	w := d.login.Load()
+	if w == nil || d.ready.Load() {
+		return nil
+	}
+	return w.sync.Load()
 }
 
 // teardownEngine tears the live engine down in place and returns d to
@@ -549,8 +776,11 @@ func (d *deps) teardownEngineLocked(lg logger.CtxLogger, reason string) {
 	if eng == nil {
 		return
 	}
+	d.openMu.Lock()
 	d.ready.Store(false)
 	eng.done.Store(true)
+	d.login.Store(nil)
+	d.openMu.Unlock()
 	eng.setCloseReason(reason)
 	eng.cancel()
 	drained := d.gate.close()

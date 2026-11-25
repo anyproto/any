@@ -79,7 +79,7 @@ func catalogNotFound(c echo.Context, id string) error {
 // catalogSetup handles POST /v1/catalog/:usecaseId/setup — set a
 // usecase up in a space: its dependency closure first, then its own
 // bundles, every step adopt-or-install and idempotent, against one
-// registry-convergence wait. The reply lists every bundle the call
+// pass of the registry gate. The reply lists every bundle the call
 // touched with what a client needs to use it — the root as the type
 // id, the property handles resolved to ids, the miniapp values.
 //
@@ -260,11 +260,11 @@ func walksBundle(cb *compiledBundle, have map[string]bool) bool {
 // supersededInstalled reads which bundles the space has installed, for
 // the supersede groups of the walk. A group is settled when the space
 // is on its old shape (any old bundle present) or already on the new
-// one (any new bundle present). Otherwise "not installed" is only true of a converged
-// registry: a member that reads an unsynced one would install the new
-// set next to the bundle it stands in for, and the two share a handle.
-// The wait is the install gate's own, and it fails the same way — the
-// owner proceeds, any other member is refused.
+// one (any new bundle present). Otherwise "not installed" is only true
+// of a registry that has reached this device: a device that reads an
+// empty stand-in would install the new set next to the bundle it stands
+// in for, and the two share a handle. The gate is the install gate's
+// own, and it fails the same way.
 func (d *deps) supersededInstalled(ctx context.Context, sp space.Space, order []*compiledUsecase) (map[string]bool, error) {
 	var groups []*catalog.SupersedeGroup
 	seen := map[*catalog.SupersedeGroup]bool{}
@@ -303,7 +303,12 @@ func (d *deps) supersededInstalled(ctx context.Context, sp space.Space, order []
 	if err != nil || settled(have) {
 		return have, err
 	}
-	if !resolver.WaitConverged(ctx, sp) && sp.Info().OwnRole != space.PermissionOwner {
+	synced, err := resolver.ReadGate(ctx, sp)
+	if err != nil {
+		return nil, err
+	}
+	if !synced && sp.Info().OwnRole != space.PermissionOwner {
+		// A 1-1 whose bounded wait ran out.
 		return nil, bundles.ErrRegistryNotSynced
 	}
 	return read()
@@ -440,10 +445,9 @@ func mayWrite(sp space.Space) bool {
 // A root of THIS bundle is never a conflict even when the registry
 // reads it as uninstalled: a deleted winner leaves its losers listed
 // as types (the registry says "install again", and the loser holds
-// the handle), an owner installing past an unconverged registry may
-// already hold its own root's tree, and a derived root's tree can sync
-// before the registry row that names it. All three are the registry's
-// to settle, not a user type in the way. Readers are left to the SDK's
+// the handle), and a derived root's tree can sync before the registry
+// row that names it. Both are the registry's to settle, not a user
+// type in the way. Readers are left to the SDK's
 // write gate, so a member without write permission hears about the
 // permission, not the handle.
 func catalogBeforeInstall(ctx context.Context, sp space.Space, inst bundles.Install) error {

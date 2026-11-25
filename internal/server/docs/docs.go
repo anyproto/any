@@ -407,6 +407,9 @@ const docTemplate = `{
                         "description": "Created is true when this account had no local state before this\ncall (fresh generation or first restore on this device).",
                         "type": "boolean"
                     },
+                    "login": {
+                        "$ref": "#/components/schemas/api.LoginState"
+                    },
                     "mnemonic": {
                         "description": "Mnemonic is returned exactly once: when the server generated a\nfresh account (no mnemonic/accountId in the request). The caller\nmust surface it to the user for backup.",
                         "type": "string"
@@ -428,10 +431,14 @@ const docTemplate = `{
                         "uniqueItems": false
                     },
                     "authorized": {
+                        "description": "Authorized is true once an account is open for requests. A login\nthat still waits for its first sync reads false, with Login set.",
                         "type": "boolean"
                     },
                     "capabilities": {
                         "$ref": "#/components/schemas/api.AuthCapabilities"
+                    },
+                    "login": {
+                        "$ref": "#/components/schemas/api.LoginState"
                     },
                     "mode": {
                         "description": "Mode is the server's ownership mode, fixed at launch.",
@@ -691,7 +698,7 @@ const docTemplate = `{
                         "uniqueItems": false
                     },
                     "synced": {
-                        "description": "Synced reports whether the registry converged before this read\n(the read-side lock): true means an absent bundle is definitively\nnot installed; false (the wait expired — cold offline device)\nmeans absence is provisional.",
+                        "description": "Synced reports whether the registry this read answered from is\none to trust (the read-side lock): true means an absent bundle is\ndefinitively not installed. It is false only in a 1-1 space whose\nbounded convergence wait ran out, where absence is provisional.\nAny other space answers true: one whose registry has not reached\nthis device does not answer at all (409 bundle.not_ready).",
                         "type": "boolean"
                     }
                 },
@@ -1852,6 +1859,9 @@ const docTemplate = `{
                     "crdtVersion": {
                         "$ref": "#/components/schemas/api.CRDTVersionState"
                     },
+                    "login": {
+                        "$ref": "#/components/schemas/api.LoginState"
+                    },
                     "networkId": {
                         "description": "NetworkId is the any-sync network this server joins: the networkId\nof the nodeconf it started with. Set whether or not an account is\nauthorized. The server names no networks; clients map well-known\nids to names themselves.",
                         "type": "string"
@@ -2656,6 +2666,37 @@ const docTemplate = `{
                         "additionalProperties": {},
                         "description": "Record is the document after the update.",
                         "type": "object"
+                    }
+                },
+                "type": "object"
+            },
+            "api.LoginState": {
+                "description": "Login is set while a login waits for the account's first sync;\nAccount is empty until the wait ends (see LoginState).",
+                "properties": {
+                    "accountId": {
+                        "description": "AccountId is the account being logged in.",
+                        "type": "string"
+                    },
+                    "globalPeers": {
+                        "type": "integer"
+                    },
+                    "localPeers": {
+                        "type": "integer"
+                    },
+                    "networkPeers": {
+                        "description": "NetworkPeers, LocalPeers and GlobalPeers count the live\nconnections the registry can sync over: sync nodes, local-network\ndevices of the account, and its devices reached over the internet.",
+                        "type": "integer"
+                    },
+                    "sync": {
+                        "description": "Sync is the sync state of the account's space registry, as last\nsampled: offline means no sync node and no direct peer is\nconnected, so the wait cannot end yet.",
+                        "enum": [
+                            "unknown",
+                            "offline",
+                            "syncing",
+                            "synced",
+                            "error"
+                        ],
+                        "type": "string"
                     }
                 },
                 "type": "object"
@@ -3719,6 +3760,9 @@ const docTemplate = `{
             },
             "api.SpaceCreateRequest": {
                 "properties": {
+                    "anySpaceType": {
+                        "type": "string"
+                    },
                     "description": {
                         "type": "string"
                     },
@@ -3828,6 +3872,9 @@ const docTemplate = `{
             },
             "api.SpaceInfo": {
                 "properties": {
+                    "anySpaceType": {
+                        "type": "string"
+                    },
                     "author": {
                         "type": "string"
                     },
@@ -3835,7 +3882,7 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "derived": {
-                        "description": "Derived marks a space created by the account's own derivation\n(POST /v1/spaces/derived/:name or another consumer of the SDK's\nDerive). Derived spaces are permanent — DELETE refuses them with\n409 space.derived_undeletable. Absent on created / joined / 1-1\nspaces.",
+                        "description": "Derived marks a space created by the account's own derivation\n(the SDK's Derive). Derived spaces are permanent — DELETE refuses\nthem with 409 space.derived_undeletable. Absent on created /\njoined / 1-1 spaces.",
                         "type": "boolean"
                     },
                     "description": {
@@ -4996,6 +5043,59 @@ const docTemplate = `{
                     }
                 },
                 "summary": "Authorize: generate, restore (mnemonic) or select an account; replace switches (managed)",
+                "tags": [
+                    "auth"
+                ]
+            }
+        },
+        "/auth/login": {
+            "delete": {
+                "parameters": [
+                    {
+                        "description": "managed servers: the control token",
+                        "in": "header",
+                        "name": "X-Any-Control-Token",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Internal Server Error"
+                    }
+                },
+                "summary": "Discard a login that waits for its first sync",
                 "tags": [
                     "auth"
                 ]
@@ -7725,7 +7825,7 @@ const docTemplate = `{
                     }
                 ],
                 "responses": {
-                    "201": {
+                    "200": {
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -7733,7 +7833,7 @@ const docTemplate = `{
                                 }
                             }
                         },
-                        "description": "Created"
+                        "description": "OK"
                     },
                     "404": {
                         "content": {
@@ -7766,7 +7866,7 @@ const docTemplate = `{
                         "description": "Internal Server Error"
                     }
                 },
-                "summary": "Materialize a well-known derived space",
+                "summary": "Open a well-known derived space this device holds",
                 "tags": [
                     "spaces"
                 ]
@@ -8880,6 +8980,16 @@ const docTemplate = `{
                         },
                         "description": "Not Found"
                     },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
                     "500": {
                         "content": {
                             "application/json": {
@@ -9129,6 +9239,16 @@ const docTemplate = `{
                             }
                         },
                         "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
                     },
                     "500": {
                         "content": {
@@ -10848,6 +10968,16 @@ const docTemplate = `{
                             }
                         },
                         "description": "Not Found"
+                    },
+                    "409": {
+                        "content": {
+                            "application/octet-stream": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
                     },
                     "500": {
                         "content": {

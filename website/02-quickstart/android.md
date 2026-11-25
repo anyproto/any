@@ -88,15 +88,18 @@ Use `filesDir` (or another app-private directory) as the data dir: it holds the 
 An embedded server starts *unauthorized* on a fresh data dir — there is no `any init` on a phone. Onboard over HTTP:
 
 ```kotlin
-// generate a new account; the mnemonic comes back ONCE — show it and make the user save it
+// create a new account; the mnemonic comes back ONCE — show it and make the user save it
 POST http://$addr/v1/auth      {}
 // → { "accountId": "A8g1…", "created": true, "mnemonic": "w1 … w12" }
 
-// or restore from a phrase (same account id, fresh device key)
+// or log in to an existing account with its phrase (same account id, fresh device key)
 POST http://$addr/v1/auth      { "mnemonic": "w1 … w12" }
+// → { "accountId": "A8g1…", "created": true, "login": { "accountId": "A8g1…", "sync": "unknown", … } }
 ```
 
-Until then every route except `/v1/health`, `/v1/shutdown`, `/v1/openapi.json`, `/v1/auth` answers `401 auth.required`. On later launches a standalone server finds the wallet in `filesDir` and boots the engine on `startWithResult`; a managed one waits for `POST /v1/auth` again ([Accounts](../auth/accounts.html)).
+A created account is open when the call returns, with no network. A login on a device that holds nothing of the account is not: the reply carries `login`, and every other route answers `503 auth.login_pending` until the account has synced once from the network or from another device of the account. Show a "waiting for sync" screen and poll `GET /v1/auth` until `authorized` is true; the wait survives an app restart, and an account that has synced opens at once on later launches, offline too.
+
+Until an account is booted every route except `/v1/health`, `/v1/shutdown`, `/v1/openapi.json`, `/v1/auth` answers `401 auth.required`. On later launches a standalone server finds the wallet in `filesDir` and boots the engine on `startWithResult`; a managed one waits for `POST /v1/auth` again ([Accounts](../auth/accounts.html)).
 
 ## Then it is just HTTP
 

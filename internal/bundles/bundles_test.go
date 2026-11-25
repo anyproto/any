@@ -23,14 +23,20 @@ type fakeSpace struct {
 	bundles *fakeBundles
 	status  *fakeSyncStatus
 	objects *fakeObjects
-	// role and indexErr drive the install gate: what this account may
-	// do, and whether the registry converged.
+	// role and indexErr drive the registry gate: what this account may
+	// do, and whether the registry is here — nil reads as an index on
+	// this device, an error as one that has not arrived. In a 1-1
+	// (oneToOne) the error is what the bounded convergence wait
+	// returns instead.
 	role     space.Permission
 	indexErr error
-	// waited records the deadline the gate gave WaitIndexSynced;
-	// waits counts the calls.
-	waited time.Duration
-	waits  int
+	oneToOne bool
+	// seedChecks counts the gate's IndexSeeded reads. waited records
+	// the deadline the gate gave a 1-1's WaitIndexSynced; waits counts
+	// those calls.
+	seedChecks int
+	waited     time.Duration
+	waits      int
 	// types serves the root's part declarations for the adopt-side
 	// settled check; nil = every root reads as declaration-less.
 	types *fakeTypes
@@ -89,7 +95,17 @@ func (f *fakeSpace) SyncStatus() space.SyncStatusAPI {
 	return f.status
 }
 
-func (f *fakeSpace) Info() space.SpaceInfo { return space.SpaceInfo{Id: f.id, OwnRole: f.role} }
+func (f *fakeSpace) Info() space.SpaceInfo {
+	info := space.SpaceInfo{Id: f.id, OwnRole: f.role}
+	if f.oneToOne {
+		info.Type = space.SpaceTypeOneToOne
+	}
+	return info
+}
+func (f *fakeSpace) IndexSeeded(context.Context) bool {
+	f.seedChecks++
+	return f.indexErr == nil
+}
 func (f *fakeSpace) WaitIndexSynced(ctx context.Context) error {
 	f.waits++
 	if dl, ok := ctx.Deadline(); ok {
@@ -489,7 +505,7 @@ func TestSyncQuiescentRequiresSynced(t *testing.T) {
 
 // newInstallFake is a space with nothing installed, so Ensure takes
 // the install path. role is what this account may do in the space,
-// indexErr whether its registry converged.
+// indexErr whether its registry is here (nil) or has not arrived.
 func newInstallFake(role space.Permission, indexErr error) *fakeSpace {
 	return &fakeSpace{
 		id:       "space1",
@@ -500,43 +516,78 @@ func newInstallFake(role space.Permission, indexErr error) *fakeSpace {
 	}
 }
 
-// TestEnsureRefusesUnconvergedMember pins the fork guard for created
-// roots: a member who cannot converge the registry cannot know whether
-// someone already installed, and a blind create would mint a permanent
-// second root.
-func TestEnsureRefusesUnconvergedMember(t *testing.T) {
-	sp := newInstallFake(space.PermissionWriter, errors.New("index wait expired"))
+// TestEnsureRefusesWithoutRegistry pins the fork guard: a device the
+// space's registry has not reached cannot know whether someone already
+// installed, and a blind install would mint a permanent second root —
+// or, derived, demote a created install it has not seen. Refused for
+// every role and both root strategies, without a wait.
+func TestEnsureRefusesWithoutRegistry(t *testing.T) {
 	ctx := context.Background()
-
-	_, _, err := newTestResolver(0).Ensure(ctx, ctx, sp, Install{Id: "general-chat/v1"})
-	if !errors.Is(err, ErrRegistryNotSynced) {
-		t.Fatalf("err = %v, want ErrRegistryNotSynced", err)
-	}
-	if sp.objects.created != 0 {
-		t.Fatalf("refused install still created %d root(s)", sp.objects.created)
+	for _, tc := range []struct {
+		name string
+		role space.Permission
+		inst Install
+	}{
+		{"member, created root", space.PermissionWriter, Install{Id: "general-chat/v1"}},
+		{"owner, created root", space.PermissionOwner, Install{Id: "general-chat/v1"}},
+		{"owner, derived root", space.PermissionOwner, Install{Id: "general-chat/v1", RootType: "chat", Derived: true}},
+	} {
+		sp := newInstallFake(tc.role, errors.New("index not here"))
+		_, _, err := newTestResolver(0).Ensure(ctx, ctx, sp, tc.inst)
+		if !errors.Is(err, ErrRegistryNotSynced) {
+			t.Fatalf("%s: err = %v, want ErrRegistryNotSynced", tc.name, err)
+		}
+		if sp.objects.created != 0 || len(sp.bundles.ensured) != 0 {
+			t.Fatalf("%s: refused install still created %d root(s), ensured %d", tc.name, sp.objects.created, len(sp.bundles.ensured))
+		}
+		if sp.waits != 0 {
+			t.Fatalf("%s: the gate waited %d time(s), want a local check only", tc.name, sp.waits)
+		}
 	}
 }
 
-// TestEnsureOwnerInstallsUnconverged pins the owner escape: only this
-// account's own devices could have competed, and the registry
-// converges those.
-func TestEnsureOwnerInstallsUnconverged(t *testing.T) {
-	sp := newInstallFake(space.PermissionOwner, errors.New("index wait expired"))
+// TestReadGate pins the gate for reads: a space whose registry has not
+// reached this device does not answer, one that has answers synced,
+// and a 1-1 answers after its bounded wait and says whether it
+// converged.
+func TestReadGate(t *testing.T) {
 	ctx := context.Background()
+	r := newTestResolver(0)
 
-	b, installed, err := newTestResolver(0).Ensure(ctx, ctx, sp, Install{Id: "general-chat/v1"})
-	if err != nil || !installed || b.RootId != "created-root" {
-		t.Fatalf("owner install: b=%+v installed=%v err=%v", b, installed, err)
+	absent := newInstallFake(space.PermissionOwner, errors.New("index not here"))
+	if synced, err := r.ReadGate(ctx, absent); synced || !errors.Is(err, ErrRegistryNotSynced) {
+		t.Fatalf("no registry: synced=%v err=%v, want ErrRegistryNotSynced", synced, err)
+	}
+	if err := RegistryLocal(ctx, absent); !errors.Is(err, ErrRegistryNotSynced) {
+		t.Fatalf("no registry: RegistryLocal = %v, want ErrRegistryNotSynced", err)
+	}
+
+	here := newInstallFake(space.PermissionReader, nil)
+	if synced, err := r.ReadGate(ctx, here); !synced || err != nil || here.waits != 0 {
+		t.Fatalf("registry here: synced=%v err=%v waits=%d", synced, err, here.waits)
+	}
+	if err := RegistryLocal(ctx, here); err != nil {
+		t.Fatalf("registry here: RegistryLocal = %v", err)
+	}
+
+	oneToOne := newInstallFake(space.PermissionWriter, errors.New("index wait expired"))
+	oneToOne.oneToOne = true
+	if synced, err := r.ReadGate(ctx, oneToOne); synced || err != nil || oneToOne.waits != 1 {
+		t.Fatalf("1-1, wait expired: synced=%v err=%v waits=%d, want a provisional read", synced, err, oneToOne.waits)
+	}
+	if err := RegistryLocal(ctx, oneToOne); err != nil {
+		t.Fatalf("1-1: RegistryLocal = %v, want no gate", err)
 	}
 }
 
 // TestEnsureDerivedInstallsUnconverged is the offline-1-1 regression:
-// both participants of a 1-1 are writers and neither can ever claim
-// the owner escape, so a created install is refused forever while they
-// are apart. A derived root has no competing id to mint, so it must
-// install regardless of what the registry wait did.
+// both participants of a 1-1 are writers, so a created install is
+// refused while they are apart. A derived root has no competing id to
+// mint, so in a 1-1 it must install regardless of what the registry
+// wait did.
 func TestEnsureDerivedInstallsUnconverged(t *testing.T) {
 	sp := newInstallFake(space.PermissionWriter, errors.New("index wait expired"))
+	sp.oneToOne = true
 	ctx := context.Background()
 
 	b, installed, err := newTestResolver(0).Ensure(ctx, ctx, sp, Install{
@@ -663,7 +714,7 @@ func TestEnsureRefusesAbsentCreatedRoot(t *testing.T) {
 }
 
 // TestConvergeWaitTracksConnectivity pins how long the install gate
-// holds the convergence wait open. Retrying a head-sync round against
+// holds a 1-1's convergence wait open. Retrying a head-sync round against
 // nobody answers the same way every time, so a device with no peer
 // connected must not spend the full deadline learning that — while a
 // connected one takes the full bound, since that wait is the only
@@ -678,6 +729,7 @@ func TestConvergeWaitTracksConnectivity(t *testing.T) {
 	r.OfflineIndexWait = time.Minute
 
 	offline := newInstallFake(space.PermissionWriter, errors.New("index wait expired"))
+	offline.oneToOne = true
 	if _, _, err := r.Ensure(ctx, ctx, offline, inst); err != nil {
 		t.Fatalf("offline derived install: %v", err)
 	}
@@ -686,6 +738,7 @@ func TestConvergeWaitTracksConnectivity(t *testing.T) {
 	}
 
 	online := newInstallFake(space.PermissionWriter, errors.New("index wait expired"))
+	online.oneToOne = true
 	online.status = &fakeSyncStatus{state: space.SyncStateSyncing, peers: 1}
 	if _, _, err := r.Ensure(ctx, ctx, online, inst); err != nil {
 		t.Fatalf("online derived install: %v", err)
@@ -961,11 +1014,11 @@ func TestSetupHandleHealGate(t *testing.T) {
 }
 
 // TestSetupWaitsOnce pins the reason Setup exists: a walk over several
-// installs consults the registry-convergence wait once and reuses the
-// verdict, runs the caller's pre-install rule once per genuine
-// install, and stops at the entry the rule refuses, naming it.
+// installs consults the registry gate once and reuses the verdict, runs
+// the caller's pre-install rule once per genuine install, and stops at
+// the entry the rule refuses, naming it.
 func TestSetupWaitsOnce(t *testing.T) {
-	sp := newInstallFake(space.PermissionOwner, errors.New("index wait expired"))
+	sp := newInstallFake(space.PermissionOwner, nil)
 	ctx := context.Background()
 	installs := []Install{{Id: "a/v1"}, {Id: "b/v1"}, {Id: "c/v1"}}
 
@@ -981,8 +1034,8 @@ func TestSetupWaitsOnce(t *testing.T) {
 	if len(results) != 3 || sp.objects.created != 3 {
 		t.Fatalf("results=%d created=%d", len(results), sp.objects.created)
 	}
-	if sp.waits != 1 {
-		t.Fatalf("WaitIndexSynced called %d times, want once", sp.waits)
+	if sp.seedChecks != 1 || sp.waits != 0 {
+		t.Fatalf("gate consulted %d times (waits %d), want one local check", sp.seedChecks, sp.waits)
 	}
 	if strings.Join(seen, ",") != "a/v1,b/v1,c/v1" {
 		t.Fatalf("pre-install hook saw %v", seen)

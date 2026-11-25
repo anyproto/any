@@ -7,7 +7,7 @@ order: 150
 
 A derived object is one whose id is a pure function of its inputs — an account's keys, a space, a fixed seed — rather than a fresh random id minted at creation. Every device and every member computes the same id offline, so "the one and only X" exists without anyone creating it first, and two parties who have never talked still land on the same object.
 
-Derived ids are how any answers a question hosted backends solve with a lock: *which* object is the space's chat, *which* space is the account's agent space, *where* does a space's name live.
+Derived ids are how any answers a question hosted backends solve with a lock: *which* object is the space's chat, *which* space two people share, *where* does a space's name live.
 
 ## Why check-then-create fails here
 
@@ -21,7 +21,7 @@ A derived id removes the race instead of resolving it. There is nothing to look 
 
 | Thing | Derived from | Surface |
 |---|---|---|
-| **Derived spaces** — well-known per-account spaces such as the agent space `bao` | account keys + registry seed `any/space/<name>/v1` | `GET /v1/spaces/derived`, `POST /v1/spaces/derived/:name` — [Derived spaces](../collaboration/derived-spaces.html) |
+| **Derived spaces** — per-account spaces from the registry (`bao`); the server opens one an account has and creates none | account keys + registry seed `any/space/<name>/v1` | `GET /v1/spaces/derived` resolves, `POST /v1/spaces/derived/:name` opens — [Derived spaces](../collaboration/derived-spaces.html) |
 | **One-to-one spaces** | both participants' account keys, order-independent | `POST /v1/spaces/one-to-one` — [One-to-one](../collaboration/one-to-one.html) |
 | **`spaceIndex` object** — owns the space's name / description / icon and the bundles registry | the space | `SpaceInfo.spaceIndexObjectId` on every single-space response — [Spaces](spaces.html) |
 | **Bundle roots** installed with `"derived": true` | space + bundle id (`builtin:bundleRoot:<id>`) | `POST /v1/spaces/:id/bundles` — [Bundles](../collaboration/bundles.html) |
@@ -31,22 +31,22 @@ A derived change carries no identity, signature or timestamp — that is what ma
 
 ## Resolve, then materialize
 
-Deriving an id never creates anything. The pattern across the surface is a cheap resolve followed by a lazy, idempotent materialize:
+Deriving an id never creates anything. The pattern across the surface is a cheap resolve followed by a lazy, idempotent materialize. Derived spaces stop at the resolve: the server opens one an account already has and creates none.
 
 ```sh
 # resolve: pure computation, reports whether a usable row exists anywhere in the account
 curl http://127.0.0.1:2046/v1/spaces/derived
-# → {"spaces": [{"name": "bao", "spaceId": "bafy…", "created": false}]}
+# → {"spaces": [{"name": "bao", "spaceId": "bafy…", "created": true}]}
 
-# materialize: creates on first call, returns the same space on every later one
+# open: the space this device holds a row for; 404 space.derived_not_created without one
 curl -X POST http://127.0.0.1:2046/v1/spaces/derived/bao
-# → 201 SpaceInfo
+# → 200 SpaceInfo
 
 any space derived
-any space derived create bao
+any space derived open bao
 ```
 
-Bundles follow the same shape: an ensure with `"derived": true` is adopt-or-install — a read when the root is already registered, a write only the first time — and both sides of a partition install on the first attempt because there is no competing id either could mint. The space's general chat is the canonical case, installed by the server's catalog:
+Bundles carry the full shape: an ensure with `"derived": true` is adopt-or-install — a read when the root is already registered, a write only the first time — and both sides of a partition install on the first attempt because there is no competing id either could mint. The space's general chat is the canonical case, installed by the server's catalog:
 
 ```sh
 curl -X POST http://127.0.0.1:2046/v1/catalog/general-chat/setup \
@@ -68,8 +68,8 @@ A derived id names one object for the lifetime of its inputs, so the object cann
 
 Deleting a **1-1 space** is local-only and re-derivable, and a joiner of someone else's derived space never carries the flag, so leaving stays allowed.
 
-> **Note.** Ask for a derived id for things that must exist on both sides of a partition and are never removed — a space's chat, an account's agent space. Anything a user may want to delete belongs on a created object; for those, the [bundles](../collaboration/bundles.html) registry converges concurrent installs on a winner and lets the losers be merged and resolved instead.
+> **Note.** Ask for a derived id for things that must exist on both sides of a partition and are never removed, such as a space's chat. Anything a user may want to delete belongs on a created object; for those, the [bundles](../collaboration/bundles.html) registry converges concurrent installs on a winner and lets the losers be merged and resolved instead.
 
 ## Precedence when both exist
 
-If a created root and a derived root are both claimed for the same bundle id, the derived one wins on every replica — the verdict reads only the add-only claim set, so every device reaches the same answer — and the created root becomes an ordinary, resolvable loser. Nothing is destroyed; the demoted root keeps its content and stays deletable. Because a derived install proceeds after its convergence wait expires, a claim made blind can demote a created install this device had not yet seen; the wait is what narrows that window.
+If a created root and a derived root are both claimed for the same bundle id, the derived one wins on every replica — the verdict reads only the add-only claim set, so every device reaches the same answer — and the created root becomes an ordinary, resolvable loser. Nothing is destroyed; the demoted root keeps its content and stays deletable. In a one-to-one space a derived install proceeds after its convergence wait expires, so a claim made blind can demote a created install this device had not yet seen; the wait is what narrows that window. In any other space a derived install is refused, like a created one, until the space's registry has reached this device.

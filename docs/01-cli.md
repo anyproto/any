@@ -27,6 +27,7 @@ any run [--config PATH] [--data-dir DIR] [--mode standalone|managed] [--account 
                                  # start the server (foreground; --addr is the bind address)
 any auth login [--mnemonic ...|--mnemonic-stdin|--account ID] [--index N] [--replace]  # POST /v1/auth
 any auth logout                  # DELETE /v1/auth (managed servers)
+any auth discard                 # DELETE /v1/auth/login — end a login that waits for its first sync, remove what it made
 any auth status                  # GET /v1/auth
 any status                       # GET /v1/health
 any stop [--data-dir DIR] [--config PATH] [--account ID]
@@ -42,7 +43,10 @@ already exists it is a no-op that lists them. `--mnemonic` /
 always derives the same account id while the device key is freshly
 generated — the supported way to add a second device (never copy
 `wallet.key`: that clones the device key and the two peers fight over
-one network identity). Prefer `--mnemonic-stdin`; a `--mnemonic` flag
+one network identity). On a device that holds nothing of the account
+this is a login: `init` also prints `"loginPending": true`, and the
+next `any run` keeps the account closed until it has synced once
+(`02-server.md` § Startup). Prefer `--mnemonic-stdin`; a `--mnemonic` flag
 value leaks into shell history. `--new` forces an additional fresh
 account; `--index` selects the derivation index for `--mnemonic` and
 defaults to 1 — the `any` account index (0 is anytype's, so one phrase
@@ -141,7 +145,7 @@ any space settings <spaceId> [--set k=v]... [--set-bool k=true|false]... [--set-
 any space delete <spaceId> --yes                    # delete a space (irreversible)
 any space sync   <spaceId>                          # force a head-sync round now
 any space derived                                   # list well-known derived spaces (name, spaceId, created)
-any space derived create <name>                     # materialize one (idempotent)
+any space derived open <name>                       # open one this device holds (creates none)
 any space query      [--filter JSON] [--sort ...] [--limit N] [--offset N] [--total] [--projection ...] [--dataset spaces|profile]
 any space subscribe  [same flags]                   # windowed space-list SSE
 any datasets [<spaceId>]                            # dataset schemas (JSON Schema + x-scope)
@@ -198,8 +202,8 @@ on success). Use it to converge on demand instead of waiting for the
 periodic headsync timer.
 
 `any space derived` is the registry of well-known derived spaces,
-resolved and materialized by name (`docs/03-api.md` § Spaces → Derived
-spaces).
+resolved by name; `open` opens one this device holds and creates none
+(`docs/03-api.md` § Spaces → Derived spaces).
 
 `any space update` uses cobra's `Changed` semantics: a flag left unset
 leaves the field as-is, a flag set to an empty string clears it.
@@ -644,8 +648,9 @@ refused next to a declaration: a declaring root carries its marker in
 `any.type`, and it hosts its own records and values with no flag and no
 self-membership.
 Adopt-or-install: the reply carries the converged row and
-whether THIS call installed it. `get` and `list` are locked on
-registry convergence and report `synced`. `resolve` deletes a losing
+whether THIS call installed it. `get` and `list` answer only once the
+space's registry has reached this device (`409 bundle.not_ready`
+until then). `resolve` deletes a losing
 root after its content was merged; `uninstall` deletes the install,
 its losing roots then the winner, once every one of them is on this
 device; `child` derives a setup object

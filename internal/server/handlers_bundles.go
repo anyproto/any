@@ -74,8 +74,9 @@ func registerBundleRoutes(g *echo.Group, d *deps) {
 // registry converges on a winner and the other surfaces in `losers` —
 // treat `rootId` as provisional until the space has synced. A DERIVED
 // root (`"derived": true`) is computed from the bundle id, so every
-// device lands on the same one: no fork, no convergence wait, no
-// refusal — at the price of never being uninstallable.
+// device lands on the same one: no fork — at the price of never being
+// uninstallable. Either kind is refused (409 bundle.not_ready) while
+// the space's registry has not reached this device.
 //
 //	@Summary	Install or adopt a bundle
 //	@Tags		bundles
@@ -108,8 +109,8 @@ func (d *deps) bundleEnsure(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	// The server's own prefix: refused before any wait. The embedded
-	// catalog is its only writer, through the resolver directly.
+	// The server's own prefix: refused before anything else. The
+	// embedded catalog is its only writer, through the resolver directly.
 	if bundles.ReservedId(inst.Id) {
 		return writeError(c, http.StatusConflict, api.ErrBundleReserved,
 			"bundle ids under "+bundles.ReservedIdPrefix+" are the server's — installed by its catalog, not by clients",
@@ -117,9 +118,8 @@ func (d *deps) bundleEnsure(c echo.Context) error {
 	}
 
 	// The tech-space rules fail fast, BEFORE the space resolve and the
-	// registry-convergence wait the resolver runs: a declaration
-	// required, no root membership or properties (the SDK enforces the
-	// same; this spares an invalid request the wait).
+	// registry gate the resolver runs: a declaration required, no root
+	// membership or properties (the SDK enforces the same).
 	if d.isTechSpace(c.Param("spaceId")) {
 		switch {
 		case !inst.Declares():
@@ -488,8 +488,9 @@ func (d *deps) checkBundleRoot(c echo.Context, sp space.Space, inst bundles.Inst
 }
 
 // bundleList handles GET /v1/spaces/:spaceId/bundles — every live row
-// as of local state. A restored device sees what has synced so far;
-// rows appear as the space catches up.
+// as of local state. A space this device downloaded answers 409
+// bundle.not_ready until its registry has arrived; after that, rows
+// appear as the space catches up.
 //
 //	@Summary	List the space's bundles
 //	@Tags		bundles
@@ -497,6 +498,7 @@ func (d *deps) checkBundleRoot(c echo.Context, sp space.Space, inst bundles.Inst
 //	@Param		spaceId	path		string	true	"Space ID"
 //	@Success	200		{object}	api.BundleListResponse
 //	@Failure	404		{object}	api.ErrorEnvelope
+//	@Failure	409		{object}	api.ErrorEnvelope
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/bundles [get]
 func (d *deps) bundleList(c echo.Context) error {
@@ -504,10 +506,13 @@ func (d *deps) bundleList(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	// The read-side lock: answer from a converged registry so absence
-	// is definitive; when the wait expires (cold offline device) the
-	// reply says so instead of lying.
-	synced := d.bundleResolver().WaitConverged(c.Request().Context(), sp)
+	// The read-side lock: answer from a registry that has reached this
+	// device, so absence is definitive. A 1-1 answers after its bounded
+	// wait and says whether it converged.
+	synced, err := d.bundleResolver().ReadGate(c.Request().Context(), sp)
+	if err != nil {
+		return bundleError(c, err, sp.Id(), "")
+	}
 	rows, err := d.bundleResolver().List(c.Request().Context(), sp)
 	if err != nil {
 		return bundleError(c, err, sp.Id(), "")
@@ -530,6 +535,7 @@ func (d *deps) bundleList(c echo.Context) error {
 //	@Success	200			{object}	api.BundleGetResponse
 //	@Failure	400			{object}	api.ErrorEnvelope
 //	@Failure	404			{object}	api.ErrorEnvelope
+//	@Failure	409			{object}	api.ErrorEnvelope
 //	@Failure	500			{object}	api.ErrorEnvelope
 //	@Router		/spaces/{spaceId}/bundles/{bundleId} [get]
 func (d *deps) bundleGet(c echo.Context) error {
@@ -541,7 +547,10 @@ func (d *deps) bundleGet(c echo.Context) error {
 	if done {
 		return errResp
 	}
-	synced := d.bundleResolver().WaitConverged(c.Request().Context(), sp)
+	synced, err := d.bundleResolver().ReadGate(c.Request().Context(), sp)
+	if err != nil {
+		return bundleError(c, err, sp.Id(), bundleId)
+	}
 	b, err := d.bundleResolver().Get(c.Request().Context(), sp, bundleId)
 	if err != nil {
 		return bundleError(c, err, sp.Id(), bundleId)
@@ -590,6 +599,9 @@ func (d *deps) bundleResolve(c echo.Context) error {
 	if done {
 		return errResp
 	}
+	if err := bundles.RegistryLocal(c.Request().Context(), sp); err != nil {
+		return bundleError(c, err, sp.Id(), bundleId)
+	}
 	err := d.bundleResolver().Resolve(c.Request().Context(), sp, bundleId, req.LoserRootId)
 	if err != nil {
 		// The merge decision is already made — only the timing is
@@ -611,8 +623,8 @@ func (d *deps) bundleResolve(c echo.Context) error {
 
 // bundleUninstall handles DELETE /v1/spaces/:spaceId/bundles/:bundleId
 // — delete the install, losers then winner, once every tree is local.
-// Ensure's convergence gate first: a member other than the owner is
-// refused until the registry converged (docs/03-api.md § Bundles).
+// Ensure's registry gate first: refused until the space's registry has
+// reached this device (docs/03-api.md § Bundles).
 //
 //	@Summary	Uninstall a bundle: its losers, then the winner, once every one is local
 //	@Tags		bundles
@@ -642,8 +654,13 @@ func (d *deps) bundleUninstall(c echo.Context) error {
 		// The SDK's write gate would say the same after the wait.
 		return bundleError(c, space.ErrReadOnlySpace, sp.Id(), bundleId)
 	}
-	if !d.bundleResolver().WaitConverged(ctx, sp) && role != space.PermissionOwner {
-		return bundleError(c, bundles.ErrRegistryNotSynced, sp.Id(), bundleId)
+	synced, err := d.bundleResolver().ReadGate(ctx, sp)
+	if err == nil && !synced && role != space.PermissionOwner {
+		// A 1-1 whose bounded wait ran out.
+		err = bundles.ErrRegistryNotSynced
+	}
+	if err != nil {
+		return bundleError(c, err, sp.Id(), bundleId)
 	}
 	if err := d.bundleResolver().Uninstall(ctx, sp, bundleId); err != nil {
 		return bundleError(c, err, sp.Id(), bundleId)
@@ -700,6 +717,9 @@ func (d *deps) bundleChild(c echo.Context) error {
 		return errResp
 	}
 	ctx := c.Request().Context()
+	if err := bundles.RegistryLocal(ctx, sp); err != nil {
+		return bundleError(c, err, sp.Id(), bundleId)
+	}
 	b, err := d.bundleResolver().Get(ctx, sp, bundleId)
 	if err != nil {
 		return bundleError(c, err, sp.Id(), bundleId)
@@ -784,7 +804,7 @@ func bundleErrorWith(c echo.Context, err error, details map[string]any) error {
 			"the bundle's root has not synced to this device yet; retry", details)
 	case errors.Is(err, bundles.ErrRegistryNotSynced):
 		return writeError(c, http.StatusConflict, api.ErrBundleNotReady,
-			"the space's bundles registry has not synced to this device yet; retry", details)
+			"the space's bundles registry has not reached this device yet; retry once the space has synced", details)
 	case errors.Is(err, space.ErrBundleRootNotSynced):
 		return writeError(c, http.StatusConflict, api.ErrBundleNotReady,
 			"the bundle root has not synced to this device yet; retry", details)

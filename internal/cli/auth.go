@@ -80,6 +80,15 @@ func newAuthCmd() *cobra.Command {
 		},
 	}
 
+	discard := &cobra.Command{
+		Use:   "discard",
+		Short: "DELETE /v1/auth/login — end a login that waits for its first sync and remove what it made on this device",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return newClient(flags.Timeout).DiscardLogin(cmd.Context())
+		},
+	}
+
 	status := &cobra.Command{
 		Use:   "status",
 		Short: "GET /v1/auth — authorization state + locally available accounts",
@@ -94,6 +103,6 @@ func newAuthCmd() *cobra.Command {
 		},
 	}
 
-	cmd.AddCommand(login, logout, status)
+	cmd.AddCommand(login, logout, discard, status)
 	return cmd
 }

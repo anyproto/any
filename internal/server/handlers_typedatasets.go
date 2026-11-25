@@ -823,7 +823,7 @@ func cutSDKPrefixes(msg string) string {
 // datasetDraftFromAPI converts a CLIENT wire draft to
 // space.DatasetDraft, parsing enum labels; a reserved module is refused
 // here — decidable from the compiled-in catalog, so before a bundle's
-// convergence wait, with the SDK's own refusal as the backstop. Returns
+// registry gate, with the SDK's own refusal as the backstop. Returns
 // ("", "") code/reason on success.
 func datasetDraftFromAPI(req api.DatasetDraftRequest) (space.DatasetDraft, string, string) {
 	if reservedModule(req.Module) {

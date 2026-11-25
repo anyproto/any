@@ -38,6 +38,7 @@ any run  [--config PATH] [--data-dir PATH] [--mode standalone|managed] [--accoun
          [--log-level debug|info|warn|error]
 any auth login [--mnemonic …|--mnemonic-stdin|--account ID] [--index N] [--replace]   # POST /v1/auth
 any auth logout                                                   # DELETE /v1/auth (managed)
+any auth discard                                                  # DELETE /v1/auth/login: cancel a waiting login
 any auth status                                                   # GET /v1/auth
 any status                                                        # GET /v1/health
 any stop [--config PATH] [--data-dir PATH] [--account ID]         # signal the server holding the account lock
@@ -79,7 +80,7 @@ any space settings <spaceId> [--set k=v]... [--set-bool k=true|false]... [--set-
 any space delete   <spaceId> --yes
 any space sync     <spaceId>                         # force one head-sync round
 any space derived                                    # list well-known derived spaces
-any space derived create <name>                      # materialize one (idempotent)
+any space derived open <name>                        # open one this device holds (creates none)
 any space query      [--dataset spaces|profile] [--filter J] [--sort K] [--limit N] [--offset N] [--total] [--projection P]
 any space subscribe  [same flags]                    # live space list, one frame per line
 any datasets [<spaceId>]                             # dataset schemas (JSON Schema + x-scope)
