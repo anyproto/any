@@ -21,6 +21,8 @@ To attach a second machine to the same account, restore from the phrase — the 
 any init --mnemonic-stdin < phrase.txt      # never copy wallet.key between machines
 ```
 
+That is a login: the next `any run` answers `503 auth.login_pending` until the account has synced once, then opens it for good ([Accounts](../auth/accounts.html)).
+
 ## 2. Run the server
 
 ```bash

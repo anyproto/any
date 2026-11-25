@@ -81,7 +81,7 @@ any space create --name Acme --type any.organization
 any space create --name Design --parent $PARENT
 ```
 
-Only the second form creates a child: `spaceType` beside `parentSpaceId` is `any.organization.space` or empty, and that type with no `parentSpaceId` is `400 request.invalid_field`.
+Only the second form creates a child: `spaceType` beside `parentSpaceId` is `any.organization.space` or empty, and that type with no `parentSpaceId` is `400 request.invalid_field`. So is [`anySpaceType`](../database/spaces.html) beside `parentSpaceId`; an organization takes it like any space.
 
 Both creates are local, like any other, and need no network. The caller owns the child, and nothing is written to the parent. `SpaceInfo.parentSpaceId` names the parent from then on and never changes. A member finds the children it belongs to in its own [space list](../realtime/space-list.html), by that field:
 

@@ -73,11 +73,13 @@ func (d *deps) localDiscoverySet(c echo.Context) error {
 
 // applyLocalDiscovery forwards the host's statement, if any, to the
 // engine: the live one, entered through the gate like the guard does,
-// else the one booting right now (bootingSDK), so a statement is
-// honoured within seconds even during a long restore. A no-op with
-// neither, and idempotent: the SDK ignores a restatement. Called on
-// every PUT and once an engine is published, which closes the window
-// between the booting pointer being cleared and ready flipping.
+// else a login waiting for its first sync (a local-network device of
+// the account can be what delivers it), else the one booting right now
+// (bootingSDK), so a statement is honoured within seconds even during
+// a long restore. A no-op with none, and idempotent: the SDK ignores a
+// restatement. Called on every PUT and once an engine is published,
+// which closes the window between the booting pointer being cleared
+// and ready flipping.
 func (d *deps) applyLocalDiscovery() {
 	enabled := d.localDiscovery.Load()
 	if enabled == nil {
@@ -86,6 +88,17 @@ func (d *deps) applyLocalDiscovery() {
 	if h := d.enterGate(); h != nil {
 		d.sdk.SetLocalDiscoveryEnabled(*enabled)
 		d.gate.leave(h)
+		return
+	}
+	// Under openMu: a teardown clears the wait there before it closes
+	// the SDK.
+	d.openMu.Lock()
+	w := d.login.Load()
+	if w != nil {
+		w.sdk.SetLocalDiscoveryEnabled(*enabled)
+	}
+	d.openMu.Unlock()
+	if w != nil {
 		return
 	}
 	if sdk := d.bootingSDK.Load(); sdk != nil {

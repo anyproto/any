@@ -55,12 +55,13 @@ func newSpaceCreateCmd() *cobra.Command {
 
 // newSpaceDerivedCmd: `any space derived` lists the well-known
 // derived-space registry resolved against the account (name, spaceId,
-// created); `any space derived create <name>` materializes one
-// (idempotent). Derived spaces are permanent — delete refuses them.
+// created); `any space derived open <name>` opens one this device
+// holds a row for. Neither creates a space. Derived spaces are permanent — delete
+// refuses them.
 func newSpaceDerivedCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "derived",
-		Short: "well-known derived spaces (list; `create <name>` materializes)",
+		Short: "well-known derived spaces (list; `open <name>` opens one this device holds)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cl := newClient(flags.Timeout)
@@ -72,12 +73,13 @@ func newSpaceDerivedCmd() *cobra.Command {
 		},
 	}
 	cmd.AddCommand(&cobra.Command{
-		Use:   "create <name>",
-		Short: "materialize a well-known derived space by registry name",
-		Args:  cobra.ExactArgs(1),
+		Use:     "open <name>",
+		Aliases: []string{"create"},
+		Short:   "open a well-known derived space this device holds, by registry name",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cl := newClient(flags.Timeout)
-			out, err := cl.SpaceDerivedCreate(cmd.Context(), args[0])
+			out, err := cl.SpaceDerivedOpen(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}

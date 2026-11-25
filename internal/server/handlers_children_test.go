@@ -188,14 +188,7 @@ func TestServer_ChildSpace_Create(t *testing.T) {
 	}
 	plain := createSpace(t, e, "plain")
 
-	rec = doJSON(t, e, http.MethodPost, "/v1/spaces/derived/bao", "")
-	if rec.Code != http.StatusOK && rec.Code != http.StatusCreated {
-		t.Fatalf("derive bao: %d %s", rec.Code, rec.Body.String())
-	}
-	var derived api.SpaceInfo
-	if err := json.Unmarshal(rec.Body.Bytes(), &derived); err != nil {
-		t.Fatal(err)
-	}
+	derived := api.SpaceInfo{Id: deriveBao(t, d)}
 	gone := createOrganization(t, e, "gone")
 	if rec := doJSON(t, e, http.MethodDelete, "/v1/spaces/"+gone, ""); rec.Code != http.StatusNoContent {
 		t.Fatalf("delete %s: %d %s", gone, rec.Code, rec.Body.String())
@@ -230,6 +223,58 @@ func TestServer_ChildSpace_Create(t *testing.T) {
 	for _, spaceType := range []string{space.SpaceTypeAny, space.SpaceTypeOrganization, space.SpaceTypeOneToOne} {
 		rec = doJSON(t, e, http.MethodPost, "/v1/spaces", fmt.Sprintf(`{"parentSpaceId":%q,"spaceType":%q}`, parent, spaceType))
 		expectError(t, "a child with spaceType "+spaceType, rec, http.StatusBadRequest, "request.invalid_field")
+	}
+}
+
+// POST /v1/spaces refuses anySpaceType together with parentSpaceId and
+// creates no space; an organization takes one, and its children are
+// created without.
+func TestServer_ChildSpace_Create_AnySpaceType(t *testing.T) {
+	_, e := newOfflineServer(t)
+
+	rec := doJSON(t, e, http.MethodPost, "/v1/spaces", fmt.Sprintf(`{"name":"org","spaceType":%q,"anySpaceType":"team"}`, space.SpaceTypeOrganization))
+	var org api.SpaceInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &org); err != nil || rec.Code != http.StatusCreated {
+		t.Fatalf("an organization with an anySpaceType: %d %v %s", rec.Code, err, rec.Body.String())
+	}
+	if org.Type != space.SpaceTypeOrganization || org.AnySpaceType != "team" {
+		t.Fatalf("organization = %+v, want an %s with anySpaceType team", org, space.SpaceTypeOrganization)
+	}
+
+	listed := func() int {
+		t.Helper()
+		rec := doJSON(t, e, http.MethodGet, "/v1/spaces", "")
+		var list api.SpaceListResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil || rec.Code != http.StatusOK {
+			t.Fatalf("list: %d %v %s", rec.Code, err, rec.Body.String())
+		}
+		return len(list.Spaces)
+	}
+	before := listed()
+
+	// A well-formed value is refused beside a parent like a malformed one.
+	for _, body := range []string{
+		fmt.Sprintf(`{"name":"child","parentSpaceId":%q,"anySpaceType":"team"}`, org.Id),
+		fmt.Sprintf(`{"name":"child","parentSpaceId":%q,"spaceType":%q,"anySpaceType":"team"}`, org.Id, space.SpaceTypeOrganizationSpace),
+		fmt.Sprintf(`{"name":"child","parentSpaceId":%q,"anySpaceType":"Not A Slug"}`, org.Id),
+	} {
+		rec := doJSON(t, e, http.MethodPost, "/v1/spaces", body)
+		expectError(t, body, rec, http.StatusBadRequest, "request.invalid_field")
+		var env api.ErrorEnvelope
+		if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+			t.Fatal(err)
+		}
+		if got := env.Error.Details["field"]; got != "anySpaceType" {
+			t.Errorf("%s: details %v, want field anySpaceType", body, env.Error.Details)
+		}
+	}
+	if after := listed(); after != before {
+		t.Errorf("the refused requests left %d spaces, want %d", after, before)
+	}
+
+	child := createChild(t, e, org.Id, "child")
+	if child.ParentSpaceId != org.Id || child.AnySpaceType != "" {
+		t.Errorf("child = %+v, want a child of %s with no anySpaceType", child, org.Id)
 	}
 }
 

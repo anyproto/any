@@ -47,14 +47,16 @@ not dropped by an older peer.
 Startup is a locked read, never an ensure:
 
 ```
-GET /v1/spaces/<techSpaceId>/bundles     → { "bundles": […], "synced": true|false }
+GET /v1/spaces/<techSpaceId>/bundles     → { "bundles": […], "synced": true }
 ```
 
-The reply answers only after the registry convergence wait. `synced:
-true` + no `favorites/v1` row = definitively not installed. `synced:
-false` (cold offline device) = provisional; re-read after sync. When
-the row exists, take `rootId` — it is the `objectId` for everything
-below.
+The tech space's registry is always one to trust: an account is open
+only once its tech space was created on this device or has synced
+(`03-api.md` § Auth). So no `favorites/v1` row = not installed, as far
+as this device has synced; a device that was apart can still learn of
+an install made elsewhere, which is what the fork handling below is
+for. When the row exists, take `rootId` — it is the `objectId` for
+everything below.
 
 Ensure on FIRST WRITE (the user's first star on a device that has no
 row), with the canonical request:

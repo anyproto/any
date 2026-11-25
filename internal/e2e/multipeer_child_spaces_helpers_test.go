@@ -56,13 +56,6 @@ func joinAs(t *testing.T, owner *peer, spaceId, perm string, joiners ...*peer) {
 	}
 }
 
-// restartPeer starts p's server again on its data dir and address.
-func restartPeer(t *testing.T, bin string, p *peer) {
-	t.Helper()
-	p.srv = execServer(t, bin, filepath.Join(p.dataDir, "config.yaml"), p.dataDir, p.addr)
-	waitForReady(t, p.addr, 60*time.Second)
-}
-
 // createOrganization creates on p an organization, the space children
 // are created under, and checks the reply reads its type.
 func createOrganization(t *testing.T, p *peer, name string) api.SpaceInfo {

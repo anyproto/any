@@ -5,6 +5,12 @@ import "time"
 // SpaceCreateRequest is the body of POST /v1/spaces. Mirrors
 // space.CreateRequest, and space.CreateChildRequest when ParentSpaceId
 // is set.
+//
+// AnySpaceType says what the account uses the space for: a lowercase
+// slug such as "bao" for the account's agent space. It is written on
+// the account's own row of the space and read back as
+// SpaceInfo.AnySpaceType; no route changes it afterwards. A request
+// that carries it together with ParentSpaceId is refused.
 type SpaceCreateRequest struct {
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
@@ -12,7 +18,8 @@ type SpaceCreateRequest struct {
 	// SpaceType is the type of the space: "any.space", also when empty,
 	// or "any.organization", a space that can have child spaces. With
 	// ParentSpaceId it is "any.organization.space" or empty.
-	SpaceType string `json:"spaceType,omitempty"`
+	SpaceType    string `json:"spaceType,omitempty"`
+	AnySpaceType string `json:"anySpaceType,omitempty"`
 	// ParentSpaceId creates the space as a child of that organization,
 	// which the account holds as a writer, an admin or the owner.
 	ParentSpaceId string `json:"parentSpaceId,omitempty"`
@@ -66,6 +73,12 @@ type SpaceRegisterIncomingRequest struct {
 // Author is the space owner's
 // account identity, resolved best-effort from the ACL (empty when the ACL
 // isn't loadable).
+// AnySpaceType says what the account uses the space for, e.g. "bao"
+// for the account's agent space. It is the account's own: synced
+// across its devices with the space list, readable before the space
+// has loaded, and never visible to the space's other members. Set at
+// POST /v1/spaces. Omitted on a space the account gave no use.
+//
 // Settings is the account-private, client-owned per-space settings
 // object (free-form keys, scalar values — numbers surface as JSON
 // numbers/float64). Written per key via
@@ -85,6 +98,7 @@ type SpaceInfo struct {
 	Id                 string         `json:"id"`
 	Type               string         `json:"type,omitempty"`
 	SpaceType          string         `json:"spaceType,omitempty"`
+	AnySpaceType       string         `json:"anySpaceType,omitempty"`
 	Author             string         `json:"author,omitempty"`
 	Name               string         `json:"name,omitempty"`
 	Description        string         `json:"description,omitempty"`
@@ -96,10 +110,9 @@ type SpaceInfo struct {
 	SpaceIndexObjectId string         `json:"spaceIndexObjectId,omitempty"`
 	Push               *SpacePushKeys `json:"push,omitempty"`
 	// Derived marks a space created by the account's own derivation
-	// (POST /v1/spaces/derived/:name or another consumer of the SDK's
-	// Derive). Derived spaces are permanent — DELETE refuses them with
-	// 409 space.derived_undeletable. Absent on created / joined / 1-1
-	// spaces.
+	// (the SDK's Derive). Derived spaces are permanent — DELETE refuses
+	// them with 409 space.derived_undeletable. Absent on created /
+	// joined / 1-1 spaces.
 	Derived bool `json:"derived,omitempty"`
 	// ParentSpaceId is the parent of a child space, as the space header
 	// names it. Absent on a top-level space, and on a joined child
@@ -142,12 +155,12 @@ const (
 
 // DerivedSpaceInfo is one row of GET /v1/spaces/derived — a registry
 // entry resolved against the account: the deterministic spaceId the
-// entry derives to, and whether a usable space row exists (materialized
-// here or on any of the account's devices). Resolving ids never
-// creates anything; materialize with POST /v1/spaces/derived/:name.
-// Status is the raw row status when a row exists (omitted otherwise);
-// a "deleted" row — wedged before the permanence guard existed —
-// reports created=false and refuses materialization.
+// entry derives to, and whether this device holds a usable row of the
+// space (written here, or received from another of the account's
+// devices). Nothing is created; POST /v1/spaces/derived/:name opens a
+// space that has a row. Status is the raw row status when a row exists
+// (omitted otherwise); a "deleted" row — wedged before the permanence
+// guard existed — reports created=false and is not opened.
 type DerivedSpaceInfo struct {
 	Name    string `json:"name"`
 	SpaceId string `json:"spaceId"`

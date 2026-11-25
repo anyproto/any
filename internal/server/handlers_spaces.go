@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/labstack/echo/v4"
@@ -27,7 +28,7 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	// (derivedspaces.go) resolved against the account. Static segment,
 	// registered before the :spaceId matcher.
 	g.GET("/spaces/derived", d.derivedSpaceList)
-	g.POST("/spaces/derived/:name", d.derivedSpaceCreate)
+	g.POST("/spaces/derived/:name", d.derivedSpaceOpen)
 	g.GET("/spaces/:spaceId", d.spaceGet)
 	g.PATCH("/spaces/:spaceId", d.spaceUpdate)
 	// Account-private per-space client settings (settings.notifyMode
@@ -255,14 +256,17 @@ func registerSpaceRoutes(g *echo.Group, d *deps) {
 	g.GET("/spaces/:spaceId/debug/objects/:objectId", d.debugObject)
 }
 
+// anySpaceTypeRe is the shape of SpaceCreateRequest.AnySpaceType.
+var anySpaceTypeRe = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
+
 // @Summary		Create a space
-// @Description	spaceType names the type of the space: any.space, also when empty, or any.organization, a space that can have child spaces. With parentSpaceId the space is created as a child of that organization, of type any.organization.space. Creation is local either way; the network accepts a child when it is first pushed, and SpaceInfo.refusal names a check it failed.
+// @Description	spaceType names the type of the space: any.space, also when empty, or any.organization, a space that can have child spaces. With parentSpaceId the space is created as a child of that organization, of type any.organization.space. Creation is local either way; the network accepts a child when it is first pushed, and SpaceInfo.refusal names a check it failed. anySpaceType says what the account uses the space for and is read back on the space; a request that carries it together with parentSpaceId is refused.
 // @Tags			spaces
 // @Accept			json
 // @Produce		json
 // @Param			body	body		api.SpaceCreateRequest	true	"Space params"
 // @Success		201		{object}	api.SpaceInfo
-// @Failure		400		{object}	api.ErrorEnvelope	"request.invalid_field — spaceType is not any.space or any.organization, or with parentSpaceId not any.organization.space; parentSpaceId is not a space id"
+// @Failure		400		{object}	api.ErrorEnvelope	"request.invalid_field — spaceType is not any.space or any.organization, or with parentSpaceId not any.organization.space; parentSpaceId is not a space id; anySpaceType is not a lowercase slug of at most 64 characters, or comes with parentSpaceId"
 // @Failure		404		{object}	api.ErrorEnvelope	"space.not_found — the account has no space parentSpaceId"
 // @Failure		409		{object}	api.ErrorEnvelope	"space.parent_invalid — the parent is not an organization; space.deleted, space.not_accepted — the parent is not an accepted space of the account"
 // @Failure		500		{object}	api.ErrorEnvelope
@@ -275,11 +279,17 @@ func (d *deps) spaceCreate(c echo.Context) error {
 	if req.ParentSpaceId != "" {
 		return d.spaceCreateChild(c, req)
 	}
+	if req.AnySpaceType != "" && !anySpaceTypeRe.MatchString(req.AnySpaceType) {
+		return writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"anySpaceType must be a lowercase slug of at most 64 characters",
+			map[string]any{"field": "anySpaceType"})
+	}
 	sp, err := d.sdk.Spaces().Create(c.Request().Context(), space.CreateRequest{
-		Name:        req.Name,
-		Description: req.Description,
-		IconCID:     req.IconCID,
-		SpaceType:   req.SpaceType,
+		Name:         req.Name,
+		Description:  req.Description,
+		IconCID:      req.IconCID,
+		SpaceType:    req.SpaceType,
+		AnySpaceType: req.AnySpaceType,
 	})
 	if err != nil {
 		// SpaceType allow-list rejection. Notably hit by clients still
@@ -296,12 +306,18 @@ func (d *deps) spaceCreate(c echo.Context) error {
 
 // spaceCreateChild serves POST /v1/spaces with a parentSpaceId —
 // Service.CreateChild. A child has one type, so spaceType names that
-// type or nothing.
+// type or nothing. CreateChild takes no AnySpaceType, so the request
+// carries none.
 func (d *deps) spaceCreateChild(c echo.Context, req *api.SpaceCreateRequest) error {
 	if req.SpaceType != "" && req.SpaceType != space.SpaceTypeOrganizationSpace {
 		return writeError(c, http.StatusBadRequest, "request.invalid_field",
 			"unsupported spaceType with a parentSpaceId (allowed: any.organization.space or empty)",
 			map[string]any{"spaceType": req.SpaceType})
+	}
+	if req.AnySpaceType != "" {
+		return writeError(c, http.StatusBadRequest, "request.invalid_field",
+			"anySpaceType is not accepted with a parentSpaceId",
+			map[string]any{"field": "anySpaceType"})
 	}
 	sp, err := d.sdk.Spaces().CreateChild(c.Request().Context(), space.CreateChildRequest{
 		ParentSpaceId: req.ParentSpaceId,
@@ -733,18 +749,19 @@ func spaceErrorDetails(c echo.Context, err error, details map[string]any) error 
 
 func spaceInfoToAPI(info space.SpaceInfo) api.SpaceInfo {
 	out := api.SpaceInfo{
-		Id:          info.Id,
-		Type:        info.Type,
-		SpaceType:   info.SpaceType,
-		Author:      info.Author,
-		Name:        info.Name,
-		Description: info.Description,
-		IconCID:     info.IconCID,
-		Status:      spaceStatusString(info.Status),
-		OwnRole:     spacePermissionString(info.OwnRole),
-		CreatedAt:   info.CreatedAt,
-		Settings:    info.Settings,
-		Derived:     info.Derived,
+		Id:           info.Id,
+		Type:         info.Type,
+		SpaceType:    info.SpaceType,
+		AnySpaceType: info.AnySpaceType,
+		Author:       info.Author,
+		Name:         info.Name,
+		Description:  info.Description,
+		IconCID:      info.IconCID,
+		Status:       spaceStatusString(info.Status),
+		OwnRole:      spacePermissionString(info.OwnRole),
+		CreatedAt:    info.CreatedAt,
+		Settings:     info.Settings,
+		Derived:      info.Derived,
 
 		ParentSpaceId: info.ParentSpaceId,
 		Refusal:       spaceRefusalString(info.Refusal),

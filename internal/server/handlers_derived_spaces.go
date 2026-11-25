@@ -12,9 +12,9 @@ import (
 
 // derivedSpaceList handles GET /v1/spaces/derived — the boot-resolved
 // registry (derivedspaces.go) joined against the account's space list.
-// Resolving never creates anything. `created` means a usable row exists
-// (materialized here or on any of the account's devices — rows sync);
-// a tombstoned row (pre-guard wedge) reports created=false with
+// Resolving never creates anything. `created` means this device holds a
+// usable row: written here, or received from another of the account's
+// devices (rows sync). A tombstoned row reports created=false with
 // status "deleted" so clients don't treat the id as writable.
 //
 //	@Summary	List well-known derived spaces
@@ -44,26 +44,24 @@ func (d *deps) derivedSpaceList(c echo.Context) error {
 	return c.JSON(http.StatusOK, out)
 }
 
-// derivedSpaceCreate handles POST /v1/spaces/derived/:name —
-// Service.Derive for a registry entry. Materializes the space (lazily:
-// nothing exists until the first call) and returns its SpaceInfo; the
-// registry DisplayName rides DeriveRequest.Name (first
-// materialization only — the SDK leaves a pre-existing row's metadata
-// alone). Idempotent — repeat calls land on the same space;
-// unregistered names are 404 so the raw derive primitive never
-// reaches the wire. A tombstoned row (wedged pre-guard) is refused
-// with 409 space.deleted rather than reported as success.
+// derivedSpaceOpen handles POST /v1/spaces/derived/:name. It opens a
+// derived space this device holds a row for and returns its SpaceInfo;
+// it creates none. Without a row the answer is
+// 404 space.derived_not_created: such an account makes a regular space
+// (POST /v1/spaces with anySpaceType). Unregistered names are 404
+// space.derived_unknown, so the raw derive primitive never reaches the
+// wire; a tombstoned row is 409 space.deleted.
 //
-//	@Summary	Materialize a well-known derived space
+//	@Summary	Open a well-known derived space this device holds
 //	@Tags		spaces
 //	@Produce	json
 //	@Param		name	path		string	true	"Registry name (e.g. bao)"
-//	@Success	201		{object}	api.SpaceInfo
+//	@Success	200		{object}	api.SpaceInfo
 //	@Failure	404		{object}	api.ErrorEnvelope
 //	@Failure	409		{object}	api.ErrorEnvelope
 //	@Failure	500		{object}	api.ErrorEnvelope
 //	@Router		/spaces/derived/{name} [post]
-func (d *deps) derivedSpaceCreate(c echo.Context) error {
+func (d *deps) derivedSpaceOpen(c echo.Context) error {
 	ctx := c.Request().Context()
 	def, ok := d.derivedSpaceByName(c.Param("name"))
 	if !ok {
@@ -74,17 +72,25 @@ func (d *deps) derivedSpaceCreate(c echo.Context) error {
 	if err != nil {
 		return sdkOpError(c, err, nil)
 	}
+	has := false
 	for _, r := range rows {
-		if r.Id == def.SpaceId && r.Status == space.StatusDeleted {
+		if r.Id != def.SpaceId {
+			continue
+		}
+		if r.Status == space.StatusDeleted {
 			return spaceError(c, space.ErrSpaceDeleted, def.SpaceId)
 		}
+		has = true
 	}
-	sp, err := d.sdk.Spaces().Derive(ctx, space.DeriveRequest{
-		Seed: []byte(def.Seed),
-		Name: def.DisplayName,
-	})
+	if !has {
+		return writeError(c, http.StatusNotFound, "space.derived_not_created",
+			"this device holds no such derived space, and none is created; create a space with anySpaceType instead",
+			map[string]any{"name": def.Name, "spaceId": def.SpaceId})
+	}
+	// With a row, Derive opens the space and leaves its metadata alone.
+	sp, err := d.sdk.Spaces().Derive(ctx, space.DeriveRequest{Seed: []byte(def.Seed)})
 	if err != nil {
 		return sdkOpError(c, err, map[string]any{"name": def.Name})
 	}
-	return c.JSON(http.StatusCreated, d.spaceToAPI(ctx, sp))
+	return c.JSON(http.StatusOK, d.spaceToAPI(ctx, sp))
 }

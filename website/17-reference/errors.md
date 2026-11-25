@@ -68,7 +68,9 @@ Panics are converted to `500 internal` with a generic message.
 | `request.too_large` | 413 | body over the 1 MB limit |
 | `request.unsupported_media_type` | 415 | a body whose `Content-Type` is missing or not `application/json` |
 | `auth.required` | 401 | server unauthorized — `POST /v1/auth` first |
-| `auth.already_authorized` | 409 | `{}` while an account runs — a fresh account is never minted in place |
+| `auth.login_pending` | 503 | a login waits for the account's first sync — poll `GET /v1/auth` |
+| `auth.already_authorized` | 409 | `{}` while an account runs (a fresh account is never minted in place), or `DELETE /v1/auth/login` on an open account |
+| `auth.login_not_discardable` | 409 | `DELETE /v1/auth/login`: the waiting login's dir may hold an account that was open (not a dir of its own: explicit wallet, data flat at the root; `login.json` unreadable; the device is in the account's registry, or the registry is unreadable); nothing is removed |
 | `auth.not_managed` | 403 | standalone server: a different account on `POST`, or `DELETE` — switching means a restart |
 | `auth.account_mismatch` | 409 | managed server runs another account; pass `replace: true` to switch |
 | `auth.bad_mnemonic` | 400 | BIP-39 validation failed |
@@ -103,6 +105,7 @@ Panics are converted to `500 internal` with a generic message.
 | `space.deleted` | 409 | the row is a tombstone; a declined or withdrawn join is re-requestable via `POST /v1/spaces/join`; on `GET …/children` and the `/v1/children/:childId` routes, a space the coordinator holds as deleted or in deletion |
 | `space.join_not_pending` | 409 | `POST …/acl/cancel-join` with nothing to withdraw: the row is not `joining`, or the owner already accepted (the row settles to `active` on its own) |
 | `space.derived_unknown` | 404 | name outside the derived-spaces registry |
+| `space.derived_not_created` | 404 | this device holds no row for that derived space; none is created |
 | `space.derived_undeletable` | 409 | derived spaces are permanent |
 | `space.derived_unshareable` | 409 | invite create, guest key or direct add on a derived space: it belongs to its account alone |
 | `space.not_invite_pending` | 409 | invite accept on a row not awaiting approval |
@@ -141,7 +144,7 @@ Panics are converted to `500 internal` with a generic message.
 | `record.deleted` | 410 | a write addressed a tombstoned record; the id is burned for good |
 | `record.wrong_object` | 400 | a `modify` or `delete-records` on a shared dataset names a record of another object — a record id is the plain id or the `<objectId>/<recordId>` of the request's own `objectId`, and a plain id never holds `/` (`details.objectId`, `details.dataset`) |
 | `bundle.not_found` | 404 | no live install for the bundle id in this space; on uninstall, a bundle never registered |
-| `bundle.not_ready` | 409 | registry not converged, or the winner's tree is not local yet — retry |
+| `bundle.not_ready` | 409 | the space's registry has not reached this device, or the winner's tree is not local yet — retry |
 | `bundle.loser_not_ready` | 409 | resolve: losing root not fully synced / grace period not elapsed; uninstall: a loser's tree not local, nothing deleted — retry |
 | `bundle.not_loser` | 409 | resolve targeted the winner or an unclaimed root |
 | `bundle.reserved` | 409 | a client ensure with an id under the server's `system:` prefix |

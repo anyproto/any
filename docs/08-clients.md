@@ -804,12 +804,12 @@ Anything private to the account, synced across its devices and spanning
 spaces, is a bundle on the **tech space** (`techSpaceId` from
 `GET /v1/account`). The startup contract:
 
-1. **Read, don't ensure.** `GET /v1/spaces/<tech>/bundles` is LOCKED on
-   registry convergence and replies with `synced`: when true, an absent
-   bundle is definitively not installed; when false (cold offline
-   device), treat absence as provisional and re-read after sync. Adopt
-   by taking `rootId` off the row; subscribe to the raw `bundles`
-   dataset for live updates.
+1. **Read, don't ensure.** `GET /v1/spaces/<tech>/bundles` answers from
+   the account's own registry: an account is open only once its tech
+   space was created on this device or has synced (§ 14), so an absent
+   bundle is not installed as far as this device has synced. Adopt by
+   taking `rootId` off the row; subscribe to the raw `bundles` dataset
+   for live updates.
 2. **Ensure on first write.** `POST …/bundles` with `{"id": "<app>/v1",
    "hidden": true, "parts": [...]}` — a CREATED root minted by the
    server. The root declares a type, and a declaring root hosts its own
@@ -991,15 +991,30 @@ auth UI may offer. These rules are normative for every client:
 8. **Handle `401 auth.required` at the transport layer**, not only at
    boot. A managed server can return to unauthorized mid-session; route
    back to the auth gate.
-9. **Re-read the bound address after any lifecycle transition.** A
-   `:0` server gets a different port on respawn.
-10. **Never treat loopback as authenticated.** Any same-user process can
+9. **Create with `{}`, log in with the phrase, and show the wait.**
+   Creating an account works with no network and opens at once.
+   Logging in to an existing account on a device that holds nothing of
+   it does not open until the account has synced once: the reply and
+   `GET /v1/auth` carry `login`, `authorized` stays false, and guarded
+   routes answer `503 auth.login_pending`. Show a "waiting for sync"
+   screen driven by `login.sync` and the peer counts — `offline` means
+   nothing to sync from is connected — poll `GET /v1/auth` until
+   `authorized`, and offer a cancel: `DELETE /v1/auth/login`, called
+   while `login` is reported, discards the login and what it made on
+   the device, so forget the account after it. Start nothing that works
+   on the account before then. The wait can outlast the app: a login
+   cut off before its first sync waits again on the next launch, so the
+   same screen is where a launch lands when `GET /v1/auth` reports
+   `login`.
+10. **Re-read the bound address after any lifecycle transition.** A
+    `:0` server gets a different port on respawn.
+11. **Never treat loopback as authenticated.** Any same-user process can
     reach the API; the mode gates express ownership, not
     authentication. A managed host keeps its control token to itself.
-11. **A second engine for the same account on one device needs its own
+12. **A second engine for the same account on one device needs its own
     root.** Device identity is cached per `(root, account)`; sharing a
     root means sharing a datastore.
-12. **One data root per network.** An account's data is pinned to the
+13. **One data root per network.** An account's data is pinned to the
     any-sync network that wrote it; `409 auth.network_mismatch` means
     the root was pointed at another network. A host that can target
     several networks (staging and production builds) gives each its own

@@ -90,7 +90,7 @@ func OpenSDK(ctx context.Context, cfg config.Config, nodeconf []byte, dataDir st
 	localDiscovery := cfg.LocalDiscoveryEnabled()
 	sdkCfg := sdkconfig.Config{
 		Storage: sdkconfig.Storage{
-			DataDir:  filepath.Join(dataDir, "sdk"),
+			DataDir:  sdkDataDir(dataDir),
 			Topology: topology,
 		},
 		Network: sdkconfig.Network{NodeConfYAML: nodeconf},

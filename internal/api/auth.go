@@ -28,10 +28,36 @@ type AuthCapabilities struct {
 	Shutdown bool `json:"shutdown"`
 }
 
+// LoginState describes a login that waits for the account's first
+// sync. Logging in to an existing account (a phrase on a device that
+// holds nothing of it) keeps the server closed until the account's
+// space registry has synced once from a sync node or a direct peer:
+// until then Authorized is false and every guarded route answers 503
+// auth.login_pending. The wait survives a restart and ends on its own;
+// poll GET /v1/auth.
+type LoginState struct {
+	// AccountId is the account being logged in.
+	AccountId string `json:"accountId"`
+	// Sync is the sync state of the account's space registry, as last
+	// sampled: offline means no sync node and no direct peer is
+	// connected, so the wait cannot end yet.
+	Sync string `json:"sync" enums:"unknown,offline,syncing,synced,error"`
+	// NetworkPeers, LocalPeers and GlobalPeers count the live
+	// connections the registry can sync over: sync nodes, local-network
+	// devices of the account, and its devices reached over the internet.
+	NetworkPeers int `json:"networkPeers"`
+	LocalPeers   int `json:"localPeers"`
+	GlobalPeers  int `json:"globalPeers"`
+}
+
 // AuthStatusResponse is the GET /v1/auth reply.
 type AuthStatusResponse struct {
+	// Authorized is true once an account is open for requests. A login
+	// that still waits for its first sync reads false, with Login set.
 	Authorized bool   `json:"authorized"`
 	AccountId  string `json:"accountId,omitempty"`
+	// Login is set while a login waits for the account's first sync.
+	Login *LoginState `json:"login,omitempty"`
 	// Mode is the server's ownership mode, fixed at launch.
 	Mode string `json:"mode" enums:"standalone,managed"`
 	// Capabilities lists which lifecycle operations this server
@@ -77,4 +103,8 @@ type AuthResponse struct {
 	// confirms the phrase derives to the running account; with an
 	// accountId it confirms only that the id matches.
 	AlreadyAuthorized bool `json:"alreadyAuthorized,omitempty"`
+	// Login is set when the account is not open yet: the call logged in
+	// to an existing account, and the server waits for its first sync
+	// (see LoginState). Absent means the account is open for requests.
+	Login *LoginState `json:"login,omitempty"`
 }

@@ -98,8 +98,9 @@ func loadOrCreateDeviceKey(ctx context.Context, dir string) (key []byte, created
 	return key, true, nil
 }
 
-// writeFileAtomic writes body to a temp file beside path, syncs it and
-// renames it into place.
+// writeFileAtomic writes body to a temp file beside path, syncs it,
+// renames it into place and syncs the directory, so the new content
+// survives a crash once the call has returned.
 func writeFileAtomic(path string, body []byte, perm os.FileMode) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*")
 	if err != nil {
@@ -126,6 +127,11 @@ func writeFileAtomic(path string, body []byte, perm os.FileMode) error {
 	if err := os.Rename(tmpPath, path); err != nil {
 		_ = os.Remove(tmpPath)
 		return err
+	}
+	// Best effort: not every platform syncs a directory.
+	if dir, err := os.Open(filepath.Dir(path)); err == nil {
+		_ = dir.Sync()
+		_ = dir.Close()
 	}
 	return nil
 }

@@ -36,7 +36,7 @@ Every error response — regardless of status code — has the same body:
 | 500    | Internal error — unexpected SDK or server failure; typed: `auth.device_key_corrupt`, `auth.network_pin_corrupt`, `sdk.store_corrupt`, `server.internal` |
 | 501    | `sdk.not_implemented` — `GET …/sync-status/peers` |
 | 502    | `access.unavailable`                                           |
-| 503    | Request cancelled or the engine tearing down (`server.unavailable`); embedder unreachable (`index.embedder_unavailable`); the any-sync network out of reach for a call that needs its answer (`network.unreachable`) |
+| 503    | Request cancelled or the engine tearing down (`server.unavailable`); embedder unreachable (`index.embedder_unavailable`); the any-sync network out of reach for a call that needs its answer (`network.unreachable`); a login waits for the account's first sync (`auth.login_pending`) |
 | 507    | `storage.no_space` — the device has no disk space left (`POST /v1/auth`) |
 
 No caller authentication in v1 (loopback is the trust boundary). The
@@ -69,7 +69,9 @@ request.too_large                # 413 — body over the 1 MB cap
 request.unsupported_media_type   # 415 — a body whose Content-Type is missing or not application/json (file attach, the avatar upload and the local-store import take raw bodies)
 
 auth.required                    # 401 — server unauthorized; POST /v1/auth first
-auth.already_authorized          # 409 — `{}` while an account runs; a fresh account is never minted in place
+auth.login_pending               # 503 — a login waits for the account's first sync; poll GET /v1/auth
+auth.already_authorized          # 409 — `{}` while an account runs (a fresh account is never minted in place), or DELETE /v1/auth/login on an open account
+auth.login_not_discardable       # 409 — DELETE /v1/auth/login: the waiting login's dir may hold an account that was open (not a dir of its own: explicit wallet, data flat at the root; login.json unreadable; the device is in the account's registry, or the registry is unreadable); nothing is removed
 auth.not_managed                 # 403 — standalone server: a different account on POST, or DELETE (switching = restart)
 auth.account_mismatch            # 409 — managed server runs another account; pass replace:true to switch
 auth.bad_mnemonic                # 400 — BIP-39 validation failed
@@ -91,6 +93,7 @@ space.not_invite_pending         # 409 — invite accept/decline on a space not 
 space.join_not_pending           # 409 — POST …/acl/cancel-join with nothing to withdraw: the row is not joining, or the owner accepted first (the row settles to active on its own); a request gone with no membership behind it is settled by the call itself (204, row deleted)
 space.read_only                  # 403 — synced write into a space this account cannot write (guest access or reader role)
 space.derived_unknown            # 404 — POST /v1/spaces/derived/:name outside the embedded registry
+space.derived_not_created        # 404 — POST /v1/spaces/derived/:name on a device that holds no row for that derived space; none is created
 space.derived_undeletable        # 409 — DELETE on a derived space; derived spaces are permanent
 space.derived_unshareable        # 409 — invite create, guest key or direct add on a derived space; a derived space belongs to its account alone
 space.unsupported                # 405 — the route is not available on the tech space (allowed there: bundles, type reads and dataset declarations on bundle roots, records on bundle roots, GET space, sync-status, debug)
@@ -183,7 +186,7 @@ device.pruned                    # 409 — this device was pruned: PUT /me is ab
 
 file.not_found                   # 404 — unknown fileId / objectId, or files query before the first attach
 file.not_durable                 # 409 — offload refused: local bytes are the only copy (not backed up yet)
-file.not_available               # 409 — content not local and not fetchable yet (not durable, or no public read base); retry after the row gains networkSign. Also an avatar download whose bytes the network cannot serve yet
+file.not_available               # 409 — the first byte asked for is not local and not fetchable yet (no reachable peer holds it, and it is not durable yet or there is no public read base); retry after the row gains networkSign. Also an avatar download whose bytes the network cannot serve yet
 file.variant_invalid             # 400 — variant/variantOf pairing broken, or original on a different object
 
 history.version_not_found        # 404 — unknown version (ChangeId), or not in this object's DAG

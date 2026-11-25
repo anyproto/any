@@ -109,6 +109,8 @@ The mnemonic is the only way to restore the account on another device; there is 
 any init --mnemonic-stdin < phrase.txt    # same account id, fresh device key
 ```
 
+That is a login: the next `any run` keeps the account closed until it has synced once from the network or from another device of the account, and then opens it for good ([Accounts](../auth/accounts.html)).
+
 ## Start the server
 
 ```bash

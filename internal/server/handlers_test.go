@@ -3,8 +3,10 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -22,6 +24,11 @@ import (
 // (relative to this package dir, `go test`'s CWD). It's gitignored, not
 // checked in — copy your own staging.yml there to run these tests.
 const stagingPath = "../../staging.yml"
+
+// testServiceType is the mDNS service type every SDK a test opens
+// announces and browses under: the SDKs of a test run find each other
+// and no other `any` on the local network.
+var testServiceType = fmt.Sprintf("_anyt%d._tcp", os.Getpid())
 
 // newTestDeps boots the server's deps in-process: wallet, SDK and a
 // hand-built engine. Returns a teardown that tears the engine down
@@ -52,6 +59,7 @@ func newTestDepsCfg(t testing.TB, mutate func(*config.Config)) (*deps, func()) {
 	cfg := config.Defaults()
 	cfg.DataDir = dataDir
 	cfg.Network.NodeconfPath = stagingPath
+	cfg.P2P.ServiceName = testServiceType
 	if mutate != nil {
 		mutate(&cfg)
 	}
@@ -115,9 +123,9 @@ func newTestDepsCfg(t testing.TB, mutate func(*config.Config)) (*deps, func()) {
 		cfg:       cfg,
 		runCtx:    context.Background(),
 	}
-	// Publish without the engine goroutines bootAccount spawns (the
-	// process interest and the derived-setup pass) — they reach the
-	// network and are not what handler tests exercise.
+	// Publish without the engine goroutine bootAccount spawns (the
+	// process interest) — it reaches the network and is not what
+	// handler tests exercise.
 	d.eng = eng
 	d.sdk = eng.sdk
 	d.push = eng.push
