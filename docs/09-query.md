@@ -188,6 +188,9 @@ An operator outside the set is `400 filter.unknown_operator`; the message
 lists the whole supported set and `details.operator` carries the token you
 sent.
 
+`$and`, `$or` and `$nor` take a non-empty array: an empty one is
+`400 filter.invalid`. `{"<t>.tags": {"$all": []}}` matches nothing.
+
 ### Dates
 
 Timestamps — the derived `createdAt` / `modifiedAt` stamps and every
