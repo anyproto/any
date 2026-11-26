@@ -42,10 +42,12 @@ func TestRefuseDamaged_CauseUntyped(t *testing.T) {
 	if err := RefuseDamaged(nil); err != nil {
 		t.Fatalf("RefuseDamaged(nil) = %v", err)
 	}
-	// A cancelled open deletes nothing, damaged page or not.
+	// A cancelled open deletes nothing, damaged page or not. A WAL
+	// short read is no damage: the next open rebuilds the wal-index.
 	for _, other := range []error{
 		errors.New("open: permission denied"),
 		errors.Join(fmt.Errorf("btree: page 3: %w", anystore.ErrPageIntegrity), context.Canceled),
+		fmt.Errorf("btree: read page 4: %w", anystore.ErrWALShortRead),
 	} {
 		if err := RefuseDamaged(other); err != other {
 			t.Fatalf("RefuseDamaged(%v) = %v, want it unchanged", other, err)
@@ -56,7 +58,6 @@ func TestRefuseDamaged_CauseUntyped(t *testing.T) {
 		fmt.Errorf("%w: %w", anystore.ErrQuickCheckFailed, syscall.EIO),
 		fmt.Errorf("btree: page 3: %w", anystore.ErrPageIntegrity),
 		fmt.Errorf("btree: open: %w", anystore.ErrHeaderCorrupt),
-		fmt.Errorf("btree: read page 4: %w", anystore.ErrWALCorrupt),
 		fmt.Errorf("btree: page 5: %w", anystore.ErrCorrupt),
 	} {
 		err := RefuseDamaged(cause)

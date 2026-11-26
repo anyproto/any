@@ -56,7 +56,7 @@ func TestAuthBootError_TypedRepairs(t *testing.T) {
 		},
 		// Not lasting damage: a peer process's WAL restart or a closed db.
 		"sdk WAL read past its tail": {
-			err:    fmt.Errorf("open sdk: anysyncsdk: open sdk db: %w", fmt.Errorf("btree: read page 4: %w", anystore.ErrWALCorrupt)),
+			err:    fmt.Errorf("open sdk: anysyncsdk: open sdk db: %w", fmt.Errorf("btree: read page 4: %w", anystore.ErrWALShortRead)),
 			status: http.StatusInternalServerError, code: "internal",
 		},
 		"sdk page checksum": {
