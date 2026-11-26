@@ -133,7 +133,8 @@ func (d *deps) search(c echo.Context) error {
 // parseSearchFilter parses the request's object filter at the boundary
 // — the /objects/query grammar, the same 400s (filter.invalid /
 // filter.unknown_operator) — so a bad filter never surfaces from inside
-// a leg. Absent and null mean no filter.
+// a leg. Absent, null and a filter that matches everything ({}) mean no
+// filter.
 func parseSearchFilter(c echo.Context, raw json.RawMessage) (query.Filter, error, bool) {
 	if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		return nil, nil, false
@@ -146,6 +147,12 @@ func parseSearchFilter(c echo.Context, raw json.RawMessage) (query.Filter, error
 		}
 		return nil, writeError(c, http.StatusBadRequest, "filter.invalid",
 			"invalid filter: "+err.Error(), nil), true
+	}
+	// The parser gives {} as query.All. As a host filter it would still
+	// resolve the objects: a bounded window marks the result truncated,
+	// and hits whose object row is gone drop out.
+	if _, all := cond.(query.All); all {
+		return nil, nil, false
 	}
 	return cond, nil, false
 }
