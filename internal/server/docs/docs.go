@@ -967,6 +967,12 @@ const docTemplate = `{
             },
             "api.ChatEditRequest": {
                 "properties": {
+                    "attachments": {
+                        "additionalProperties": {
+                            "$ref": "#/components/schemas/api.ChatAttachment"
+                        },
+                        "type": "object"
+                    },
                     "text": {
                         "type": "string"
                     }
@@ -12781,13 +12787,13 @@ const docTemplate = `{
                                     {
                                         "$ref": "#/components/schemas/api.ChatEditRequest",
                                         "summary": "body",
-                                        "description": "New text"
+                                        "description": "New text and, optionally, the new attachments"
                                     }
                                 ]
                             }
                         }
                     },
-                    "description": "New text",
+                    "description": "New text and, optionally, the new attachments",
                     "required": true
                 },
                 "responses": {

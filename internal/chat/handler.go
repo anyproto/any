@@ -90,7 +90,10 @@ func (messagesHandler) BeforeCreate(ctx *handler.ChangeCtx, rec *handler.RecordC
 // BeforeModify gates per-op edits. Path allow-list:
 //
 //   - text                                — $set, by author only,
-//     bumps modifiedAt
+//     bumps modifiedAt; empty only while the message keeps an
+//     attachment after this change
+//   - attachments                         — $set (whole map) or $unset,
+//     by author only, bumps modifiedAt
 //   - reactions.<emoji>.<creator>         — $set (add) or $unset
 //     (remove), only on the
 //     caller's own slot
@@ -99,10 +102,12 @@ func (messagesHandler) BeforeCreate(ctx *handler.ChangeCtx, rec *handler.RecordC
 // modifiedAt, replyToMessageId, _ver.*, _deletedAt) drops the op.
 // Other ops in the same RecordChange still apply — per-op rejection
 // is the SDK's contract here.
-func (messagesHandler) BeforeModify(ctx *handler.ChangeCtx, _ *handler.RecordChange, op *handler.Op, sink *handler.Sink) error {
+func (messagesHandler) BeforeModify(ctx *handler.ChangeCtx, rec *handler.RecordChange, op *handler.Op, sink *handler.Sink) error {
 	switch {
 	case isTextEdit(op):
-		return validateTextEdit(ctx, op, sink)
+		return validateTextEdit(ctx, rec, op, sink)
+	case isAttachmentsEdit(op):
+		return validateAttachmentsEdit(ctx, op, sink)
 	case isReactionToggle(op):
 		return validateReactionToggle(ctx, op, sink)
 	default:
@@ -603,7 +608,7 @@ func isTextEdit(op *handler.Op) bool {
 		op.Path[0] == FieldText
 }
 
-func validateTextEdit(ctx *handler.ChangeCtx, op *handler.Op, sink *handler.Sink) error {
+func validateTextEdit(ctx *handler.ChangeCtx, rec *handler.RecordChange, op *handler.Op, sink *handler.Sink) error {
 	if !isAuthor(ctx) {
 		return rejectOp("not_author")
 	}
@@ -611,20 +616,13 @@ func validateTextEdit(ctx *handler.ChangeCtx, op *handler.Op, sink *handler.Sink
 		return rejectOp("text must be a string")
 	}
 	text := op.Payload.GetStringBytes()
-	if len(text) == 0 {
+	if len(text) == 0 && !keepsAttachments(ctx, rec) {
 		return rejectOp("text required")
 	}
 	if len(text) > MaxTextBytes {
 		return rejectOp(fmt.Sprintf("text too long (%d > %d bytes)", len(text), MaxTextBytes))
 	}
-	if ctx != nil && ctx.Change != nil && ctx.Change.Timestamp > 0 {
-		a := &anyenc.Arena{}
-		sink.Derive(handler.Op{
-			Type:    handler.OpSet,
-			Path:    []string{FieldModifiedAt},
-			Payload: a.NewDateTimeMillis(ctx.Change.Timestamp * 1000),
-		})
-	}
+	deriveModifiedAt(ctx, sink)
 	// Re-derive mentions from the new text. replyToMessageId is
 	// create-only, so the pre-op record is authoritative for the reply
 	// fold-in.
@@ -634,6 +632,66 @@ func validateTextEdit(ctx *handler.ChangeCtx, op *handler.Op, sink *handler.Sink
 	}
 	deriveMentions(ctx, sink, text, replyTo, true)
 	return nil
+}
+
+func isAttachmentsEdit(op *handler.Op) bool {
+	return (op.Type == handler.OpSet || op.Type == handler.OpUnset) &&
+		len(op.Path) == 1 &&
+		op.Path[0] == FieldAttachments
+}
+
+func validateAttachmentsEdit(ctx *handler.ChangeCtx, op *handler.Op, sink *handler.Sink) error {
+	if !isAuthor(ctx) {
+		return rejectOp("not_author")
+	}
+	if op.Type == handler.OpSet {
+		if op.Payload == nil {
+			return rejectOp("attachments must be an object")
+		}
+		if err := validateAttachments(op.Payload); err != nil {
+			return err
+		}
+	}
+	deriveModifiedAt(ctx, sink)
+	return nil
+}
+
+// keepsAttachments reports whether the message has an attachment once
+// this change applies: the change's own attachments op decides, else
+// the pre-change record does.
+func keepsAttachments(ctx *handler.ChangeCtx, rec *handler.RecordChange) bool {
+	if rec != nil {
+		for i := range rec.Ops {
+			if o := &rec.Ops[i]; isAttachmentsEdit(o) {
+				return o.Type == handler.OpSet
+			}
+		}
+	}
+	return ctx != nil && hasAttachments(ctx.Before)
+}
+
+func hasAttachments(rec *anyenc.Value) bool {
+	if rec == nil {
+		return false
+	}
+	v := rec.Get(FieldAttachments)
+	if v == nil || v.Type() != anyenc.TypeObject {
+		return false
+	}
+	obj, err := v.Object()
+	return err == nil && obj != nil && obj.Len() > 0
+}
+
+func deriveModifiedAt(ctx *handler.ChangeCtx, sink *handler.Sink) {
+	if ctx == nil || ctx.Change == nil || ctx.Change.Timestamp <= 0 || sink == nil {
+		return
+	}
+	a := &anyenc.Arena{}
+	sink.Derive(handler.Op{
+		Type:    handler.OpSet,
+		Path:    []string{FieldModifiedAt},
+		Payload: a.NewDateTimeMillis(ctx.Change.Timestamp * 1000),
+	})
 }
 
 // deriveMentions computes and stamps the derived `mentions` array: the

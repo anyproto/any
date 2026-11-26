@@ -889,6 +889,10 @@ components:
       type: object
     api.ChatEditRequest:
       properties:
+        attachments:
+          additionalProperties:
+            $ref: '#/components/schemas/api.ChatAttachment'
+          type: object
         text:
           type: string
       type: object
@@ -8417,9 +8421,9 @@ paths:
               oneOf:
               - type: object
               - $ref: '#/components/schemas/api.ChatEditRequest'
-                description: New text
+                description: New text and, optionally, the new attachments
                 summary: body
-        description: New text
+        description: New text and, optionally, the new attachments
         required: true
       responses:
         "200":

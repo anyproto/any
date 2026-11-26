@@ -287,7 +287,7 @@ Values are keyed by `propId`, never `xKey`. See [Types and properties](../databa
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
 | POST | `…/objects/:objectId/chat/messages` | `{text?, replyToMessageId?, agent?, attachments?, context?, control?}` | 201 write result | text required unless `attachments` or `control` is set (`400 chat.text_required`); text ≤ 32 KiB (`400 chat.text_too_long`); `400 chat.reply_id_invalid`, `chat.agent_invalid`, `chat.attachments_invalid`, `chat.context_invalid`, `chat.control_invalid` |
-| PATCH | `…/chat/messages/:msgId` | `{text}` | write result | `403 chat.not_author`, `404 chat.not_found` |
+| PATCH | `…/chat/messages/:msgId` | `{text, attachments?}` | write result | `attachments` replaces the whole map (`{}` clears, absent keeps); text may be empty only while an attachment stays (`400 chat.text_required`); `400 chat.attachments_invalid`, `403 chat.not_author`, `404 chat.not_found` |
 | DELETE | `…/chat/messages/:msgId` | — | write result | own only |
 | POST | `…/chat/messages/:msgId/reactions/:emoji` | — | write result | toggle; `400 chat.emoji_invalid` (empty or > 64 bytes) |
 | POST | `…/chat/read-all` | — | 204 | |

@@ -23,14 +23,18 @@ var ErrNotFound = errors.New("chat: message not found")
 // chat.not_author at the HTTP layer.
 var ErrNotAuthor = errors.New("chat: not the message author")
 
+// ErrTextRequired signals an edit that would leave a message with
+// neither text nor attachments. Maps to 400 chat.text_required.
+var ErrTextRequired = errors.New("chat: text required")
+
 // SendOpts is the input to Send. Text is required only when Attachments
 // is empty (an attachment-only message is valid) and is validated by
 // the handler; ReplyToMessageId is an opaque soft reference; Agent is
 // an optional group marking the message as agent-authored (UI hint,
 // not verified — see chat.go package doc).
 //
-// Attachments is an optional create-only client hint; each entry is
-// {type, link}.
+// Attachments is optional; each entry is {type, link}. Edit can
+// replace the set later.
 type SendOpts struct {
 	Text             string
 	ReplyToMessageId string
@@ -69,14 +73,7 @@ func Send(ctx context.Context, sp space.Space, objectId string, opts SendOpts) (
 		payload[FieldAgent] = agent
 	}
 	if len(opts.Attachments) > 0 {
-		atts := make(map[string]any, len(opts.Attachments))
-		for id, a := range opts.Attachments {
-			atts[id] = map[string]any{
-				FieldAttachmentType: a.Type,
-				FieldAttachmentLink: a.Link,
-			}
-		}
-		payload[FieldAttachments] = atts
+		payload[FieldAttachments] = attachmentsPayload(opts.Attachments)
 	}
 	if opts.Context != nil {
 		cx := map[string]any{FieldContextSpaceId: opts.Context.SpaceId}
@@ -121,23 +118,55 @@ func Send(ctx context.Context, sp space.Space, objectId string, opts SendOpts) (
 	return res, nil
 }
 
-// Edit updates the text of an existing message and returns the
-// space.ModifyResult. The author check runs both here (clean 403 for
-// local callers) and in the handler (defense-in-depth for peer changes).
-func Edit(ctx context.Context, sp space.Space, objectId, msgId, callerId, text string) (space.ModifyResult, error) {
-	if err := requireAuthor(ctx, sp, objectId, msgId, callerId); err != nil {
+// EditOpts is the input to Edit. Text replaces the message text.
+// Attachments, when non-nil, replaces the whole attachments map; an
+// empty map removes it. Text may be empty only while the edited message
+// keeps an attachment (ErrTextRequired otherwise).
+type EditOpts struct {
+	Text        string
+	Attachments *map[string]api.ChatAttachment
+}
+
+// Edit updates an existing message and returns the space.ModifyResult.
+// Text and attachments land in one change. The author check runs both
+// here (clean 403 for local callers) and in the handler (defense-in-depth
+// for peer changes).
+func Edit(ctx context.Context, sp space.Space, objectId, msgId, callerId string, opts EditOpts) (space.ModifyResult, error) {
+	rec, err := requireAuthor(ctx, sp, objectId, msgId, callerId)
+	if err != nil {
 		return space.ModifyResult{}, err
+	}
+	if opts.Text == "" {
+		keeps := hasAttachments(rec)
+		if opts.Attachments != nil {
+			keeps = len(*opts.Attachments) > 0
+		}
+		if !keeps {
+			return space.ModifyResult{}, ErrTextRequired
+		}
+	}
+	ops := []space.Op{{
+		Type:  space.OpSet,
+		Path:  FieldText,
+		Value: opts.Text,
+	}}
+	if opts.Attachments != nil {
+		if len(*opts.Attachments) == 0 {
+			ops = append(ops, space.Op{Type: space.OpUnset, Path: FieldAttachments})
+		} else {
+			ops = append(ops, space.Op{
+				Type:  space.OpSet,
+				Path:  FieldAttachments,
+				Value: attachmentsPayload(*opts.Attachments),
+			})
+		}
 	}
 	res, err := sp.Modify(ctx, space.ModifyBatch{
 		ObjectId: objectId,
 		Dataset:  Dataset,
 		Records: []space.RecordModify{{
-			Id: msgId,
-			Ops: []space.Op{{
-				Type:  space.OpSet,
-				Path:  FieldText,
-				Value: text,
-			}},
+			Id:  msgId,
+			Ops: ops,
 		}},
 	})
 	if err != nil {
@@ -149,11 +178,22 @@ func Edit(ctx context.Context, sp space.Space, objectId, msgId, callerId, text s
 	return res, nil
 }
 
+func attachmentsPayload(atts map[string]api.ChatAttachment) map[string]any {
+	out := make(map[string]any, len(atts))
+	for id, a := range atts {
+		out[id] = map[string]any{
+			FieldAttachmentType: a.Type,
+			FieldAttachmentLink: a.Link,
+		}
+	}
+	return out
+}
+
 // Delete tombstones a message and returns the space.ModifyResult.
 // Author check runs here for the clean 403 path; the handler's
 // BeforeDelete provides peer-side enforcement.
 func Delete(ctx context.Context, sp space.Space, objectId, msgId, callerId string) (space.ModifyResult, error) {
-	if err := requireAuthor(ctx, sp, objectId, msgId, callerId); err != nil {
+	if _, err := requireAuthor(ctx, sp, objectId, msgId, callerId); err != nil {
 		return space.ModifyResult{}, err
 	}
 	res, err := sp.Delete(ctx, space.DeleteBatch{
@@ -207,19 +247,19 @@ func ToggleReaction(ctx context.Context, sp space.Space, objectId, msgId, caller
 	return res, nil
 }
 
-// requireAuthor reads the message's creator and returns ErrNotAuthor
-// when it doesn't match callerId (ErrNotFound when the message is
+// requireAuthor reads the message and returns ErrNotAuthor when its
+// creator doesn't match callerId (ErrNotFound when the message is
 // absent). Gives edit/delete a clean local 403; the handler re-checks
 // for peer-originated changes.
-func requireAuthor(ctx context.Context, sp space.Space, objectId, msgId, callerId string) error {
+func requireAuthor(ctx context.Context, sp space.Space, objectId, msgId, callerId string) (*anyenc.Value, error) {
 	rec, err := getRaw(ctx, sp, objectId, msgId)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if getString(rec, FieldCreator) != callerId {
-		return ErrNotAuthor
+		return nil, ErrNotAuthor
 	}
-	return nil
+	return rec, nil
 }
 
 // getRaw is the shared lookup used by requireAuthor / ToggleReaction.

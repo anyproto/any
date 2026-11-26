@@ -277,6 +277,13 @@ func TestE2E_MultipeerChat(t *testing.T) {
 	if editEnv.Error.Code != api.ErrChatNotAuthor {
 		t.Errorf("joiner edit: code = %q, want %q", editEnv.Error.Code, api.ErrChatNotAuthor)
 	}
+	var attEnv api.ErrorEnvelope
+	mustJSON(t, http.MethodPatch, joinerBase+"/chat/messages/"+m1.Id,
+		`{"text":"","attachments":{"x":{"type":"link","link":"https://example.com"}}}`,
+		http.StatusForbidden, &attEnv)
+	if attEnv.Error.Code != api.ErrChatNotAuthor {
+		t.Errorf("joiner attachments edit: code = %q, want %q", attEnv.Error.Code, api.ErrChatNotAuthor)
+	}
 	var delEnv api.ErrorEnvelope
 	mustJSON(t, http.MethodDelete, joinerBase+"/chat/messages/"+m1.Id,
 		"", http.StatusForbidden, &delEnv)

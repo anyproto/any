@@ -188,8 +188,10 @@ const (
 // sub-field (how the run behind a done:true bubble ended when not
 // normally — `interrupted`, `error`; opaque to the server). v5: the
 // create-only `control` group ({kind, hard?}) — a signal to the agent
-// (`break`), a message that needs no text.
-const dataVersion = "chat_messages-v5"
+// (`break`), a message that needs no text. v6: the author may $set or
+// $unset `attachments` after create, and an edit may empty `text` while
+// the message keeps an attachment — a v5 handler rejects both.
+const dataVersion = "chat_messages-v6"
 
 // handlerVersion is this handler's LOCAL logic version — bumped when a
 // change to the handler makes rows already materialized on disk wrong,

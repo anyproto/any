@@ -4269,14 +4269,14 @@ an agent subscribed to `chat_messages` ignores its own messages
 (`agent` present) and only responds to human ones (`agent` absent).
 Omitted from responses when unset.
 
-`attachments` is an optional, create-only map keyed by short opaque
+`attachments` is an optional map keyed by short opaque
 ids (1–64 chars, `[A-Za-z0-9_-]+`); each entry is `{type, link}`, both
 required. `type` (≤ 64 bytes) is an open enum — known values are
 `"link"` and `"image"`; clients fall back to rendering `link` as a
 plain anchor for unknown types rather than dropping the entry. `link`
 is ≤ 2 KiB. Up to 32 attachments per message; violations are
-`400 chat.attachments_invalid`. Immutable post-create — the handler
-rejects $set on the attachments path.
+`400 chat.attachments_invalid`. The author can replace the whole map
+on edit (§ Edit / delete); a single entry is never patched in place.
 
 `context` is the sender's view at send time — the page on screen when
 they hit send: `spaceId` (required), `objectId` (the open object /
@@ -4359,8 +4359,13 @@ each page client-side for oldest-at-top display. See `08-clients.md`
 
 #### Edit / delete (own only)
 
-`PATCH .../chat/messages/:msgId` body `{ "text": "..." }` replaces the
-text (required, non-empty, ≤ 32 KiB) and bumps `modifiedAt`.
+`PATCH .../chat/messages/:msgId` body `{ "text": "...", "attachments"?: {...} }`
+replaces the text (≤ 32 KiB) and bumps `modifiedAt`. `attachments`,
+when present, replaces the whole map with the same rules as send
+(`400 chat.attachments_invalid`); `{}` removes every attachment; absent
+leaves them as they are. Text and attachments land in one change.
+`text` may be empty only while the edited message keeps an attachment;
+otherwise `400 chat.text_required`.
 `DELETE .../chat/messages/:msgId` tombstones the record. Both return
 `200` with the shared write result
 `{versionId, changeId, recordIds}` (`recordIds=[msgId]`), `403

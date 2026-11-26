@@ -33,7 +33,7 @@ The install is a derived, hidden root that is its own type with a chat part, so 
 | Method | Path | Purpose |
 |--------|------|---------|
 | POST | `/v1/spaces/:spaceId/objects/:objectId/chat/messages` | send a message |
-| PATCH | `…/chat/messages/:msgId` | edit own message text |
+| PATCH | `…/chat/messages/:msgId` | edit own message text and attachments |
 | DELETE | `…/chat/messages/:msgId` | delete own message |
 | POST | `…/chat/messages/:msgId/reactions/:emoji` | toggle own reaction |
 | POST | `…/chat/read-all` | mark everything read |
@@ -69,7 +69,7 @@ This is what `/query` and `/query/subscribe` return for a `chat_messages` record
 | `text` | client | Markdown, ≤ 32 KiB. Rendering is the client's job. |
 | `replyToMessageId` | client, create-only | Soft reference (≤ 256 bytes); the target is not validated. |
 | `mentions` | server-derived | Identities mentioned in `text` plus the replied-to author. Never accepted from a client. Absent when nobody is mentioned. |
-| `attachments` | client, create-only | Map of short ids (`[A-Za-z0-9_-]{1,64}`) → `{type, link}`. `type` is open (`link`, `image` known — render unknown types as a plain link); `link` ≤ 2 KiB; ≤ 32 entries. |
+| `attachments` | client, author-editable | Map of short ids (`[A-Za-z0-9_-]{1,64}`) → `{type, link}`. `type` is open (`link`, `image` known — render unknown types as a plain link); `link` ≤ 2 KiB; ≤ 32 entries. |
 | `reactions` | server-derived leaves | `emoji → {accountId → instant}`; same shape on read and write. |
 | `agent` | client, create-only | Marks an agent-authored message (UI hint, not signature-verified). `name` required (≤ 256 B), `debugLink` optional (≤ 2 KiB), `done` required boolean — `false` while the run is still going, so clients show a typing indicator until a `done: true` message lands; `outcome` optional (≤ 64 B, e.g. `interrupted`, `error`) says how a finished run ended when it did not end normally. |
 | `context` | client, create-only | The sender's view at send time: `spaceId` required, `objectId` and `view` (an open string such as `object`) optional. How an agent reading the chat resolves "this page". |
@@ -91,6 +91,11 @@ curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/objects/$CHAT/chat/messages \
 curl -X PATCH http://127.0.0.1:2046/v1/spaces/$SP/objects/$CHAT/chat/messages/$MSG \
   -H 'Content-Type: application/json' -d '{"text": "hello, world"}'
 
+# swap the attachments too ({} removes them all; leave the key out to keep them)
+curl -X PATCH http://127.0.0.1:2046/v1/spaces/$SP/objects/$CHAT/chat/messages/$MSG \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "", "attachments": {"a1": {"type": "image", "link": "any://f/<spaceId>/<fileId>"}}}'
+
 # delete (own only)
 curl -X DELETE http://127.0.0.1:2046/v1/spaces/$SP/objects/$CHAT/chat/messages/$MSG
 
@@ -100,7 +105,7 @@ curl -X POST http://127.0.0.1:2046/v1/spaces/$SP/objects/$CHAT/chat/messages/$MS
 
 The same from the CLI: `any chat send $SP $CHAT --text "hello" [--reply-to MSG] [--agent-name NAME --agent-debug-link L --agent-done=false]`, `any chat edit …`, `any chat delete …`, `any chat react $SP $CHAT $MSG 👍`. `--file -` reads message text from stdin.
 
-Edit replaces `text` and bumps `modifiedAt`; delete tombstones the record. Both answer `403 chat.not_author` for anyone but the author and `404 chat.not_found` for unknown ids — and the handler enforces the same rules on changes arriving from peers, so a forged edit from another device is rejected at apply time, not just at the HTTP door.
+Edit replaces `text` and bumps `modifiedAt`; `attachments`, when present, replaces the whole map. Text may be empty only while the message keeps an attachment (`400 chat.text_required` otherwise); delete tombstones the record. Both answer `403 chat.not_author` for anyone but the author and `404 chat.not_found` for unknown ids — and the handler enforces the same rules on changes arriving from peers, so a forged edit from another device is rejected at apply time, not just at the HTTP door.
 
 A reaction toggle is a `$set` (add) or `$unset` (remove) on the single leaf `reactions.<emoji>.<callerId>`, and only the change's signer can write into their own leaf. Because the leaf is unique per (emoji, identity), two members reacting simultaneously can never corrupt each other's reaction. The timestamp is server-derived; sort by it client-side if you want arrival order.
 
@@ -238,7 +243,7 @@ On any `closed`, resubscribe and let the new snapshot replace the badge set. The
 
 Total live surface for a desktop client: one objects subscription per space, one `/query/subscribe` for the open chat, and one feed cursor per space in memory.
 
-`chat_messages` keeps no [version history](../database/version-history.html): the `/history` endpoints never list chat changes, and there is no per-message edit timeline — clients render live records only (an edit replaces `text`, a delete tombstones).
+`chat_messages` keeps no [version history](../database/version-history.html): the `/history` endpoints never list chat changes, and there is no per-message edit timeline — clients render live records only (an edit replaces `text` and, when sent, `attachments`; a delete tombstones).
 
 ## Things not to do
 

@@ -858,3 +858,96 @@ func (d extDate) seconds() int64 {
 	}
 	return int64(d.millis) / 1000
 }
+
+func TestServer_Chat_EditAttachments(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	e := buildEcho(d)
+
+	spaceId, objectId := setupChatFixture(t, e)
+	base := "/v1/spaces/" + spaceId + "/objects/" + objectId
+
+	send := func(body string) string {
+		t.Helper()
+		rec := doJSON(t, e, http.MethodPost, base+"/chat/messages", body)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("send: %d %s", rec.Code, rec.Body.String())
+		}
+		return decodeModifyResult(t, rec.Body.Bytes()).RecordIds[0]
+	}
+	patch := func(id, body string, want int) api.ErrorEnvelope {
+		t.Helper()
+		rec := doJSON(t, e, http.MethodPatch, base+"/chat/messages/"+id, body)
+		if rec.Code != want {
+			t.Fatalf("PATCH %s: %d %s, want %d", body, rec.Code, rec.Body.String(), want)
+		}
+		var env api.ErrorEnvelope
+		if want != http.StatusOK {
+			_ = json.Unmarshal(rec.Body.Bytes(), &env)
+		}
+		return env
+	}
+
+	id := send(`{"text":"hi","attachments":{"a1":{"type":"link","link":"https://example.com/a"}}}`)
+
+	t.Run("absent leaves attachments", func(t *testing.T) {
+		patch(id, `{"text":"hi edited"}`, http.StatusOK)
+		msg := getChatMsg(t, e, base, id)
+		if msg.Text != "hi edited" || len(msg.Attachments) != 1 || msg.Attachments["a1"].Link != "https://example.com/a" {
+			t.Errorf("got %+v", msg)
+		}
+	})
+
+	t.Run("replace", func(t *testing.T) {
+		patch(id, `{"text":"hi edited","attachments":{"b1":{"type":"image","link":"https://example.com/b.png"},"b2":{"type":"link","link":"any://x/y"}}}`, http.StatusOK)
+		msg := getChatMsg(t, e, base, id)
+		if len(msg.Attachments) != 2 {
+			t.Fatalf("attachments = %+v, want b1, b2", msg.Attachments)
+		}
+		if _, ok := msg.Attachments["a1"]; ok {
+			t.Errorf("a1 survived a replace: %+v", msg.Attachments)
+		}
+		if a := msg.Attachments["b1"]; a.Type != "image" || a.Link != "https://example.com/b.png" {
+			t.Errorf("b1 = %+v", a)
+		}
+	})
+
+	t.Run("attachments only, empty text", func(t *testing.T) {
+		patch(id, `{"text":""}`, http.StatusOK)
+		msg := getChatMsg(t, e, base, id)
+		if msg.Text != "" || len(msg.Attachments) != 2 {
+			t.Errorf("got %+v", msg)
+		}
+		patch(id, `{"text":"","attachments":{"c1":{"type":"link","link":"https://example.com/c"}}}`, http.StatusOK)
+		if msg := getChatMsg(t, e, base, id); len(msg.Attachments) != 1 || msg.Attachments["c1"].Type != "link" {
+			t.Errorf("got %+v", msg)
+		}
+	})
+
+	t.Run("empty text and no attachments", func(t *testing.T) {
+		env := patch(id, `{"text":"","attachments":{}}`, http.StatusBadRequest)
+		if env.Error.Code != api.ErrChatTextRequired {
+			t.Errorf("code = %q, want %q", env.Error.Code, api.ErrChatTextRequired)
+		}
+		plain := send(`{"text":"plain"}`)
+		env = patch(plain, `{"text":""}`, http.StatusBadRequest)
+		if env.Error.Code != api.ErrChatTextRequired {
+			t.Errorf("code = %q, want %q", env.Error.Code, api.ErrChatTextRequired)
+		}
+	})
+
+	t.Run("remove all with text", func(t *testing.T) {
+		patch(id, `{"text":"caption back","attachments":{}}`, http.StatusOK)
+		msg := getChatMsg(t, e, base, id)
+		if msg.Text != "caption back" || len(msg.Attachments) != 0 {
+			t.Errorf("got %+v", msg)
+		}
+	})
+
+	t.Run("invalid attachments", func(t *testing.T) {
+		env := patch(id, `{"text":"x","attachments":{"bad id":{"type":"link","link":"https://e"}}}`, http.StatusBadRequest)
+		if env.Error.Code != api.ErrChatAttachmentsInvalid {
+			t.Errorf("code = %q, want %q", env.Error.Code, api.ErrChatAttachmentsInvalid)
+		}
+	})
+}

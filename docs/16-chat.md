@@ -76,6 +76,15 @@ carries equal stamps. Show an "edited" marker off `_ver` instead —
 (`_ver.id` is the creation marker, `_ver.<path>` advances with every
 write to that path).
 
+## Editing
+
+An edit sends the full new `text` and, to change the attachments, the
+full new `attachments` map: what the composer shows is what the message
+becomes. `{}` drops every attachment; leaving the key out keeps them.
+Text may be empty only while an attachment stays, so an
+attachment-only message stays editable. Every edit writes `text`, so
+`_ver.text` marks an attachments-only edit as edited too.
+
 ## What the SDK maintains for you
 
 Per message (local fields on the record, visible in query results and
@@ -505,4 +514,5 @@ change.)
 - `chat_messages` has **no version history** (`SkipHistory`): the
   `/history` endpoints never list chat changes, and there is no
   per-message edit timeline or "view original" — clients render live
-  records only (an edit replaces `text`, a delete tombstones).
+  records only (an edit replaces `text` and, when sent, `attachments`;
+  a delete tombstones).
