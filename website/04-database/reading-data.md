@@ -85,7 +85,7 @@ Multiple keys in one filter object are AND-ed. A bare value means `$eq`.
 { "$or": [ { "<ownerId>.<propA>": 1 }, { "<ownerId>.<propB>": "x" } ] }
 ```
 
-An operator outside this set is `400 filter.unknown_operator`, with the token in `details.operator` and the supported list in the message; any other malformed filter is `400 filter.invalid`, located by `details.path`.
+An operator outside this set is `400 filter.unknown_operator`, with the token in `details.operator` and the supported list in the message; any other malformed filter is `400 filter.invalid`, located by `details.path`. `$and`, `$or` and `$nor` take a non-empty array: an empty one is `400 filter.invalid`.
 
 ### Arrays
 
@@ -93,7 +93,7 @@ When a field is an array, the filter compares against its elements:
 
 - a **scalar** means *contains*: `{"any.tags": "food"}`;
 - **`$in`** means *intersects*: `{"any.tags": {"$in": ["a", "b"]}}`;
-- **`$all`** means *superset*: `{"any.tags": {"$all": ["a", "b"]}}`.
+- **`$all`** means *superset*: `{"any.tags": {"$all": ["a", "b"]}}`. `{"$all": []}` matches nothing.
 
 There is deliberately no `$contains` — the scalar spelling already is it. `any.collections` is the array that matters most: `{"any.collections": "<collectionId>"}` lists what is filed under a collection, `$all` demands several at once, `$nin` excludes.
 

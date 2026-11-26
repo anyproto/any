@@ -1298,7 +1298,7 @@ a hit is kept only if its object's `objects` row matches, in every mode;
 property write (a bin move: `{"any.collections": {"$nin": ["bin"]}}`) is
 honored by the next search with no re-index. Record fields of the hit's
 own dataset (a message's `creator`, a block's `type`) are not
-filterable. `null` means no filter; a bad one is the query endpoints'
+filterable. `null` and `{}` mean no filter; a bad one is the query endpoints'
 own `400 filter.invalid` / `filter.unknown_operator`. The reply carries
 `truncated: true` (absent otherwise) when the server's read budget
 under the filter ended before `limit` matching records were found — a

@@ -449,6 +449,20 @@ func TestSearch_FilterResolveSkipsTombstones(t *testing.T) {
 	}
 }
 
+// A filter that matches everything is no host filter, as an absent one.
+func TestParseSearchFilter_MatchAllIsNoFilter(t *testing.T) {
+	for _, raw := range []string{``, `null`, ` null `, `{}`, ` {} `, `{"$and":[{}]}`} {
+		cond, errResp, done := parseSearchFilter(nil, json.RawMessage(raw))
+		if cond != nil || errResp != nil || done {
+			t.Fatalf("%q: cond=%v errResp=%v done=%v, want no filter", raw, cond, errResp, done)
+		}
+	}
+	cond, _, done := parseSearchFilter(nil, json.RawMessage(`{"any.name":"x"}`))
+	if cond == nil || done {
+		t.Fatalf("a real filter: cond=%v done=%v", cond, done)
+	}
+}
+
 // TestSearch_Filter: `filter` binds every hit to its host object's row in
 // the /objects/query grammar, in every mode — the bin exclusion being the
 // everyday shape — and a bad filter is the same 400 the query endpoints
