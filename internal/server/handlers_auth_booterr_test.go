@@ -47,7 +47,7 @@ func TestAuthBootError_TypedRepairs(t *testing.T) {
 			status: http.StatusInternalServerError, code: "sdk.store_corrupt",
 		},
 		"sdk quick check read error": {
-			err:    fmt.Errorf("open sdk: anysyncsdk: open sdk db: %w", fmt.Errorf("%w: %w", anystore.ErrQuickCheckFailed, syscall.EIO)),
+			err:    fmt.Errorf("open sdk: anysyncsdk: open sdk db: %w", fmt.Errorf("any-store: quick check on db open did not complete: %w", syscall.EIO)),
 			status: http.StatusInternalServerError, code: "internal",
 		},
 		"sdk header": {
