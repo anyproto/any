@@ -353,3 +353,29 @@ func residueShape(existing []existingBlock) bool {
 	_, ok := frontMatterEnd(splitLines(Join(rendered)))
 	return ok
 }
+
+func TestSplit_ParagraphInterruptHTML(t *testing.T) {
+	cases := []struct {
+		in   string
+		want []string
+	}{
+		{"x\n<u>a</u>\n", []string{"x\n<u>a</u>"}},
+		{"x\n<https://example.com>\n", []string{"x\n<https://example.com>"}},
+		{"x\n<span class=\"a\">b</span>\n", []string{"x\n<span class=\"a\">b</span>"}},
+		{"x\n</u> y\n", []string{"x\n</u> y"}},
+		{"x\n<divider>\n", []string{"x\n<divider>"}},
+		{"x\n<div>\n", []string{"x", "<div>"}},
+		{"x\n<DIV class=\"a\">\n", []string{"x", "<DIV class=\"a\">"}},
+		{"x\n</table>\n", []string{"x", "</table>"}},
+		{"x\n<hr/>\n", []string{"x", "<hr/>"}},
+		{"x\n<pre>\n", []string{"x", "<pre>"}},
+		{"x\n<!-- c -->\n", []string{"x", "<!-- c -->"}},
+		{"x\n<!DOCTYPE html>\n", []string{"x", "<!DOCTYPE html>"}},
+		{"x\n<![CDATA[a]]>\n", []string{"x", "<![CDATA[a]]>"}},
+		{"x\n<?php ?>\n", []string{"x", "<?php ?>"}},
+		{"x\n<!-- any:a -->\ny\n<!-- /any:a -->\n", []string{"x", "<!-- any:a -->\ny\n<!-- /any:a -->"}},
+	}
+	for _, c := range cases {
+		assert.Equal(t, c.want, Split(c.in), "%q", c.in)
+	}
+}

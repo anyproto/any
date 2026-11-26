@@ -476,6 +476,56 @@ func isHTMLBlockLine(l string) bool {
 	return c == '/' || c == '!' || c == '?' || isASCIILetter(c)
 }
 
+// isHTMLInterruptLine reports whether l opens an HTML block that may
+// interrupt a paragraph: CommonMark §4.6 kinds 1-6. Any other tag
+// (`<u>`, `<span>`) and an autolink continue the paragraph.
+func isHTMLInterruptLine(l string) bool {
+	t := trimLeadingSpaces(l, 3)
+	if strings.HasPrefix(t, "<?") || strings.HasPrefix(t, "<!--") ||
+		strings.HasPrefix(t, "<![CDATA[") ||
+		(len(t) > 2 && strings.HasPrefix(t, "<!") && isASCIILetter(t[2])) {
+		return true
+	}
+	if !strings.HasPrefix(t, "<") {
+		return false
+	}
+	closing := strings.HasPrefix(t, "</")
+	name := t[1:]
+	if closing {
+		name = t[2:]
+	}
+	n := 0
+	for n < len(name) && (isASCIILetter(name[n]) || (n > 0 && name[n] >= '0' && name[n] <= '9')) {
+		n++
+	}
+	if n == 0 {
+		return false
+	}
+	tag, rest := strings.ToLower(name[:n]), name[n:]
+	if !closing && htmlRawTags[tag] {
+		return rest == "" || rest[0] == ' ' || rest[0] == '\t' || rest[0] == '>'
+	}
+	return htmlBlockTags[tag] && (rest == "" || rest[0] == ' ' || rest[0] == '\t' ||
+		rest[0] == '>' || strings.HasPrefix(rest, "/>"))
+}
+
+var htmlRawTags = map[string]bool{"pre": true, "script": true, "style": true, "textarea": true}
+
+var htmlBlockTags = map[string]bool{
+	"address": true, "article": true, "aside": true, "base": true, "basefont": true,
+	"blockquote": true, "body": true, "caption": true, "center": true, "col": true,
+	"colgroup": true, "dd": true, "details": true, "dialog": true, "dir": true,
+	"div": true, "dl": true, "dt": true, "fieldset": true, "figcaption": true,
+	"figure": true, "footer": true, "form": true, "frame": true, "frameset": true,
+	"h1": true, "h2": true, "h3": true, "h4": true, "h5": true, "h6": true,
+	"head": true, "header": true, "hr": true, "html": true, "iframe": true,
+	"legend": true, "li": true, "link": true, "main": true, "menu": true,
+	"menuitem": true, "nav": true, "noframes": true, "ol": true, "optgroup": true,
+	"option": true, "p": true, "param": true, "search": true, "section": true,
+	"summary": true, "table": true, "tbody": true, "td": true, "tfoot": true,
+	"th": true, "thead": true, "title": true, "tr": true, "track": true, "ul": true,
+}
+
 // isTableLine: starts with `|`, after up to 3 spaces.
 func isTableLine(l string) bool {
 	t := trimLeadingSpaces(l, 3)
@@ -501,7 +551,7 @@ func consumeParagraph(lines []string, start int) (string, int) {
 			break
 		}
 		if isATXHeading(l) || isFenceOpen(l) || isBlockquoteLine(l) ||
-			isListItemLine(l) || isHTMLBlockLine(l) || isTableLine(l) {
+			isListItemLine(l) || isHTMLInterruptLine(l) || isTableLine(l) {
 			break
 		}
 		end++
