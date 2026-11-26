@@ -219,7 +219,16 @@ func TestServer_Local_Documents(t *testing.T) {
 	if !strings.Contains(string(up.Record), `"id":"zz"`) {
 		t.Fatalf("upsert-update: %s", up.Record)
 	}
+	// An upsert whose modifier changes nothing still inserts {id}, as
+	// MongoDB's does.
+	up = localDo[api.LocalUpdateResponse](t, e, http.MethodPost, "/v1/local/update",
+		`{"coll":`+accColl+`,"id":"zy","modifier":{"$unset":{"k":""}},"upsert":true}`, http.StatusOK)
+	if !up.Modified || string(up.Record) != `{"id":"zy"}` {
+		t.Fatalf("no-op upsert: %+v %s", up.Modified, up.Record)
+	}
+	localDo[api.LocalDeleteResponse](t, e, http.MethodPost, "/v1/local/delete", `{"coll":`+accColl+`,"ids":["zy"]}`, http.StatusOK)
 	localExpectError(t, e, http.MethodPost, "/v1/local/update", `{"coll":`+accColl+`,"id":"a","modifier":{"$bogus":{"k":1}}}`, http.StatusBadRequest, "local.bad_modifier")
+	localExpectError(t, e, http.MethodPost, "/v1/local/update", `{"coll":`+accColl+`,"id":"a","modifier":{"$push":{"tags":{"$each":["x"]}}}}`, http.StatusBadRequest, "local.bad_modifier")
 
 	// Upsert whole docs: replace a, add d.
 	ups := localDo[api.LocalIdsResponse](t, e, http.MethodPost, "/v1/local/upsert",
