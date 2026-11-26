@@ -14,15 +14,15 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/anyproto/any/internal/indexer/coreml"
 )
 
 // fakeANE stands in for Core ML: functions return a unit vector and
 // record which length served each text.
 type fakeANE struct {
 	mu       sync.Mutex
-	prepErrs []error // one per prepare call, the last repeating
+	prepErrs []error       // one per prepare call, the last repeating
+	absent   bool          // the package is not on disk
+	prepGate chan struct{} // set: prepare waits for it
 	prepares int
 	loadErr  map[int]error
 	loaded   []int
@@ -37,16 +37,32 @@ type fakeANE struct {
 	served     []int
 	tokens     [][]int32 // what each served text was, in order
 	closed     []int
+	// onClose, when set, runs at the start of every function's close.
+	onClose func(length int)
+}
+
+// present: the package is on disk unless absent says otherwise.
+func (f *fakeANE) present() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return !f.absent
 }
 
 func (f *fakeANE) prepare() error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.prepares++
-	if len(f.prepErrs) == 0 {
-		return nil
+	gate := f.prepGate
+	var err error
+	if len(f.prepErrs) > 0 {
+		err = f.prepErrs[min(f.prepares, len(f.prepErrs))-1]
 	}
-	return f.prepErrs[min(f.prepares, len(f.prepErrs))-1]
+	if gate != nil {
+		f.mu.Unlock()
+		<-gate
+		f.mu.Lock()
+	}
+	return err
 }
 
 func (f *fakeANE) load(length int) (aneFunction, string, error) {
@@ -123,6 +139,12 @@ func (fn *fakeFn) embed(tokens []int32, out []float32) error {
 }
 
 func (fn *fakeFn) close() {
+	fn.parent.mu.Lock()
+	onClose := fn.parent.onClose
+	fn.parent.mu.Unlock()
+	if onClose != nil {
+		onClose(fn.length)
+	}
 	fn.parent.mu.Lock()
 	defer fn.parent.mu.Unlock()
 	fn.closed = true
@@ -230,16 +252,17 @@ func TestNeuralEngine_OneLoadPerFunction(t *testing.T) {
 	}
 }
 
-// A text runs on a larger loaded function while its own is missing.
+// A text runs on a larger function when its own is not used: the text
+// asks for the larger one and the next text finds it loaded.
 func TestNeuralEngine_UsesLargerLoadedFunction(t *testing.T) {
-	f := &fakeANE{loadErr: map[int]error{128: errors.New("planned on the cpu")}}
+	f := &fakeANE{loadErr: map[int]error{128: errors.New("coreml: load s128: test error 1")}}
 	n, _ := newTestANE(t, f)
 	n.start()
 	n.loads.Wait()
 	if _, ok := n.embed(tokensOf(10)); ok {
 		t.Fatal("served with nothing loaded")
 	}
-	loadFor(n, 200)
+	n.loads.Wait() // the load that text asked for has landed
 	if _, ok := n.embed(tokensOf(10)); !ok {
 		t.Fatal("short text not served by the larger function")
 	}
@@ -445,7 +468,15 @@ func TestNeuralEngine_FailureCountResets(t *testing.T) {
 
 func TestNeuralEngine_ReleasesIdle(t *testing.T) {
 	f := &fakeANE{}
+	log := newLogLines()
+	// The close is between its two lines: a child that dies in it died in
+	// Core ML.
+	var around [][2]bool
+	f.onClose = func(int) {
+		around = append(around, [2]bool{log.has("s256 " + aneReleasing), log.has("s256 " + aneReleased)})
+	}
 	n, clock := newTestANE(t, f)
+	n.logf = log.logf
 	n.start()
 	loadFor(n, 200)
 	if _, ok := n.embed(tokensOf(200)); !ok {
@@ -461,6 +492,10 @@ func TestNeuralEngine_ReleasesIdle(t *testing.T) {
 	if _, _, closed, _ := f.snapshot(); !reflect.DeepEqual(closed, []int{256}) {
 		t.Fatalf("closed %v, want the idle 256", closed)
 	}
+	if !reflect.DeepEqual(around, [][2]bool{{true, false}}) || !log.has("s256 "+aneReleased) {
+		t.Fatalf("at the close: releasing and released said %v; lines %v", around, log.all())
+	}
+	f.onClose = nil
 	// The smallest stays however long it sat unused.
 	clock.add(time.Hour)
 	n.releaseTick()
@@ -550,10 +585,10 @@ func TestNeuralEngine_FailureCountEndsWithInstance(t *testing.T) {
 	}
 }
 
-// With every function refused there is nothing left to try.
+// With every function failed there is nothing left to try.
 func TestNeuralEngine_OffWhenNoFunctionLeft(t *testing.T) {
-	refused := errors.New("planned on the cpu")
-	f := &fakeANE{loadErr: map[int]error{128: refused, 256: refused, 512: refused}}
+	broken := errors.New("coreml: load: test error 1")
+	f := &fakeANE{loadErr: map[int]error{128: broken, 256: broken, 512: broken}}
 	var mu sync.Mutex
 	var lines []string
 	n := newNeuralEngine(f, []int{128, 256, 512}, 4, func(format string, args ...any) {
@@ -573,7 +608,7 @@ func TestNeuralEngine_OffWhenNoFunctionLeft(t *testing.T) {
 	off := n.off
 	n.mu.Unlock()
 	if !off {
-		t.Fatal("still on with every function refused")
+		t.Fatal("still on with every function failed")
 	}
 	mu.Lock()
 	defer mu.Unlock()
@@ -631,6 +666,55 @@ func TestNeuralEngine_CloseDuringLoad(t *testing.T) {
 	}
 }
 
+// A path closed while the loader prepares the package, as a child being
+// retired is, ends there: the queue went with the close.
+func TestNeuralEngine_CloseDuringPrepare(t *testing.T) {
+	f := &fakeANE{prepGate: make(chan struct{})}
+	n, _ := newTestANE(t, f)
+	n.start()
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(time.Millisecond) {
+		if _, _, _, prepares := f.snapshot(); prepares > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the loader never prepared")
+		}
+	}
+	n.close()
+	close(f.prepGate)
+	n.loads.Wait()
+	if loaded, _, _, _ := f.snapshot(); len(loaded) != 0 {
+		t.Fatalf("loaded %v after close", loaded)
+	}
+}
+
+// The path routes over every function of the package, whatever the
+// configured context: with texts capped at the first function's length
+// and that function failed, they run on the next one.
+func TestLocal_ShortContextKeepsTheLargerFunctions(t *testing.T) {
+	l := &Local{coreml: testPackage, nCtx: 128, batchDocs: 1, nEmbd: 4}
+	f := &fakeANE{loadErr: map[int]error{128: errors.New("broken")}}
+	n := l.newNeuralEngine(f)
+	n.logf = t.Logf
+	t.Cleanup(func() {
+		n.close()
+		n.loads.Wait()
+	})
+	n.start()
+	n.loads.Wait()
+	text := tokensOf(l.maxDocTokens())
+	if _, ok, deferred := n.embedBulk(text); ok || !deferred {
+		t.Fatalf("a document of the failed s128: served %v, deferred %v, miss %q", ok, deferred, n.lastMiss())
+	}
+	n.loads.Wait()
+	if _, ok, _ := n.embedBulk(text); !ok {
+		t.Fatalf("not served after s128 failed: miss %q", n.lastMiss())
+	}
+	if loaded, served, _, _ := f.snapshot(); !reflect.DeepEqual(loaded, []int{256}) || !reflect.DeepEqual(served, []int{256}) {
+		t.Fatalf("loaded %v, served by %v; want s256 alone", loaded, served)
+	}
+}
+
 func TestInstallDir(t *testing.T) {
 	root := t.TempDir()
 	src := filepath.Join(root, "compiled")
@@ -641,7 +725,7 @@ func TestInstallDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	dst := filepath.Join(root, "model.mlmodelc")
-	if err := installDir(src, dst); err != nil {
+	if err := installDir(src, dst, t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
 	if b, err := os.ReadFile(filepath.Join(dst, "weights", "weight.bin")); err != nil || string(b) != "w" {
@@ -656,7 +740,7 @@ func TestInstallDir(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(again, "other"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := installDir(again, dst); err != nil {
+	if err := installDir(again, dst, t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(dst, "other")); err == nil {
@@ -671,29 +755,217 @@ func TestInstallDir(t *testing.T) {
 	}
 }
 
-// A staging directory a dead process left is removed once it is old; a
-// fresh one belongs to a compile in flight.
-func TestRemoveStaleStages(t *testing.T) {
-	root := t.TempDir()
+// A compiled model on another volume is copied, from a stage in the
+// temporary directory it was renamed to first: a copy cut short leaves it
+// there for removeStaleStages, and a whole one leaves nothing behind.
+func TestInstallDir_FromAnotherVolume(t *testing.T) {
+	root, tmp := t.TempDir(), t.TempDir()
+	src := filepath.Join(tmp, "compiled")
+	if err := os.MkdirAll(filepath.Join(src, "weights"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "weights", "weight.bin"), []byte("w"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	dst := filepath.Join(root, "model.mlmodelc")
-	old, fresh := stagePath(dst, 111), stagePath(dst, 222)
-	for _, d := range []string{old, fresh, dst} {
+	var moved []string
+	rename := renameDir
+	renameDir = func(from, to string) error {
+		if filepath.Dir(from) != filepath.Dir(to) && (filepath.Dir(from) == root || filepath.Dir(to) == root) {
+			return &os.LinkError{Op: "rename", Old: from, New: to, Err: errors.New("cross-device link")}
+		}
+		moved = append(moved, from+" -> "+to)
+		return rename(from, to)
+	}
+	defer func() { renameDir = rename }()
+	if err := installDir(src, dst, tmp); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := os.ReadFile(filepath.Join(dst, "weights", "weight.bin")); err != nil || string(b) != "w" {
+		t.Fatalf("installed file: %q, %v", b, err)
+	}
+	held := filepath.Join(tmp, filepath.Base(stagePath(dst, os.Getpid())))
+	if want := []string{src + " -> " + held}; !reflect.DeepEqual(moved, want) {
+		t.Fatalf("moved %v, want the compile renamed to %s before the copy", moved, held)
+	}
+	for _, dir := range []string{root, tmp} {
+		if entries, _ := os.ReadDir(dir); len(entries) != map[string]int{root: 1, tmp: 0}[dir] {
+			t.Fatalf("%d entries left in %s", len(entries), dir)
+		}
+	}
+}
+
+// A compile on another volume that cannot be renamed to a temporary stage is
+// removed, not copied from a name a stop mid-copy would strand; the install
+// fails unless another process installed the compiled model meanwhile.
+func TestInstallDir_NoStageForTheCopy(t *testing.T) {
+	for _, installed := range []bool{false, true} {
+		root, tmp := t.TempDir(), t.TempDir()
+		src := filepath.Join(tmp, "compiled")
+		if err := os.MkdirAll(filepath.Join(src, "weights"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		dst := filepath.Join(root, "model.mlmodelc")
+		rename := renameDir
+		renameDir = func(from, to string) error {
+			if installed && filepath.Dir(to) == tmp {
+				if err := os.MkdirAll(filepath.Join(dst, "weights"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			return &os.LinkError{Op: "rename", Old: from, New: to, Err: errors.New("cross-device link")}
+		}
+		err := installDir(src, dst, tmp)
+		renameDir = rename
+		if installed != (err == nil) {
+			t.Fatalf("another install %v: the install with no stage to copy from returned %v", installed, err)
+		}
+		left := map[string]int{root: 0, tmp: 0}
+		if installed {
+			left[root] = 1 // the model
+		}
+		for dir, want := range left {
+			if entries, _ := os.ReadDir(dir); len(entries) != want {
+				t.Fatalf("another install %v: %d entries left in %s, want %d", installed, len(entries), dir, want)
+			}
+		}
+	}
+}
+
+// A copy that fails once another process installed the compiled model
+// keeps that model, as a final rename that fails does: Core ML stays on.
+func TestInstallDir_CopyFailsAfterAnotherInstall(t *testing.T) {
+	for _, installed := range []bool{true, false} {
+		root, tmp := t.TempDir(), t.TempDir()
+		src := filepath.Join(tmp, "compiled")
+		if err := os.MkdirAll(filepath.Join(src, "weights"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		dst := filepath.Join(root, "model.mlmodelc")
+		stage := stagePath(dst, os.Getpid())
+		rename := renameDir
+		renameDir = func(from, to string) error {
+			if filepath.Dir(to) == root {
+				return &os.LinkError{Op: "rename", Old: from, New: to, Err: errors.New("cross-device link")}
+			}
+			if err := rename(from, to); err != nil {
+				return err
+			}
+			if installed {
+				if err := os.MkdirAll(filepath.Join(dst, "weights"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			// A file where the copy goes fails it, as a full disk would.
+			return os.WriteFile(stage, nil, 0o600)
+		}
+		err := installDir(src, dst, tmp)
+		renameDir = rename
+		if installed != (err == nil) {
+			t.Fatalf("another install %v: the failed copy returned %v", installed, err)
+		}
+		if _, err := os.Stat(dst); installed != (err == nil) {
+			t.Fatalf("another install %v: its model: %v", installed, err)
+		}
+		left := map[string]int{root: 0, tmp: 0}
+		if installed {
+			left[root] = 1 // the model
+		}
+		for dir, want := range left {
+			if entries, _ := os.ReadDir(dir); len(entries) != want {
+				t.Fatalf("another install %v: %d entries left in %s, want %d", installed, len(entries), dir, want)
+			}
+		}
+	}
+}
+
+// An old stage of a dead process, beside the model or in the temporary
+// directory and also under the earlier ".tmp" name, is removed; a fresh or
+// live one, a file or link under a stage's name and any other name are kept.
+func TestRemoveStaleStages(t *testing.T) {
+	// A bracket in the path is a name like any other, not a pattern.
+	base := t.TempDir()
+	root, tmp := filepath.Join(base, "cache[1]"), filepath.Join(base, "tmp")
+	dst := filepath.Join(root, "model.mlmodelc")
+	// Every pid but live's has no process.
+	const dead, alsoDead, live = 111, 333, 222
+	alive := func(pid int) bool { return pid == live }
+	earlier := func(dst string, pid int) string { return fmt.Sprintf("%s.%d.tmp", dst, pid) }
+	held := func(stage string) string { return filepath.Join(tmp, filepath.Base(stage)) }
+	both := func(stages ...string) (out []string) {
+		for _, s := range stages {
+			out = append(out, s, held(s))
+		}
+		return out
+	}
+	old := both(stagePath(dst, dead), earlier(dst, dead))
+	fresh := both(stagePath(dst, alsoDead), earlier(dst, alsoDead))
+	inUse := both(stagePath(dst, live), earlier(dst, live))
+	elsewhere := stagePath(filepath.Join(base, "cache1", "model.mlmodelc"), dead)
+	var unrelated []string
+	for _, name := range []string{"model.mlmodelc.tmp", "model.mlmodelc.backup.tmp", "model.mlmodelc.0123.tmp", "model.mlmodelc.-1.tmp",
+		"model.mlmodelc.stage", "model.mlmodelc.0123.stage", "model.mlmodelc.111.stage.tmp", "model.mlmodelc.111.part"} {
+		unrelated = append(unrelated, filepath.Join(root, name), filepath.Join(tmp, name))
+	}
+	aged := append(append(append([]string{elsewhere}, old...), inUse...), unrelated...)
+	for _, d := range append(append([]string{dst}, fresh...), aged...) {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	past := time.Now().Add(-2 * aneStageMaxAge)
-	if err := os.Chtimes(old, past, past); err != nil {
+	// A file and a link to an old directory, named as a dead process's
+	// stages: the sweep removes only directories, and does not follow links.
+	file, link, target := stagePath(dst, 444), held(stagePath(dst, 555)), filepath.Join(base, "target")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	removeStaleStages(dst)
-	if _, err := os.Stat(old); err == nil {
-		t.Error("an abandoned staging directory was kept")
+	aged = append(aged, file)
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	for _, d := range []string{fresh, dst} {
-		if _, err := os.Stat(d); err != nil {
-			t.Errorf("%s was removed", filepath.Base(d))
+	if err := os.Symlink(target, link); err != nil {
+		t.Logf("no link: %v", err) // Windows without the privilege
+		link = ""
+	} else {
+		aged = append(aged, link)
+	}
+	past := time.Now().Add(-2 * aneStageMaxAge)
+	for _, d := range aged {
+		if err := os.Chtimes(d, past, past); err != nil {
+			t.Fatal(err)
 		}
+	}
+	removeStaleStages(dst, tmp, alive)
+	for _, d := range old {
+		if _, err := os.Lstat(d); err == nil {
+			t.Errorf("an abandoned staging directory was kept: %s", d[len(base):])
+		}
+	}
+	kept := append(append(append([]string{dst, elsewhere, file, target}, fresh...), inUse...), unrelated...)
+	if link != "" {
+		kept = append(kept, link)
+	}
+	for _, d := range kept {
+		if _, err := os.Lstat(d); err != nil {
+			t.Errorf("%s was removed", d[len(base):])
+		}
+	}
+}
+
+// An earlier release's child removes every hour-old <dst>.*.tmp whoever
+// owns it: an install's stages, beside dst and in the temporary directory
+// under the same name, are named apart.
+func TestStagePath_ApartFromTheEarlierSweep(t *testing.T) {
+	stage := filepath.Base(stagePath(filepath.Join(t.TempDir(), "model.mlmodelc"), os.Getpid()))
+	if m, err := filepath.Match("model.mlmodelc.*.tmp", stage); err != nil || m {
+		t.Fatalf("the stage %s is in the earlier sweep's pattern (%v)", stage, err)
+	}
+}
+
+// A process that runs is alive: the sweep spares its stages.
+func TestProcessAlive(t *testing.T) {
+	if !processAlive(os.Getpid()) {
+		t.Fatal("this test's own process is not alive")
 	}
 }
 
@@ -758,36 +1030,31 @@ func TestCoreMLBackend_PrepareWaitsForFiles(t *testing.T) {
 	}
 }
 
-// A function is planned once per process: a reload after an idle
-// release opens it again without another plan, and a refused plan opens
-// nothing.
-func TestCoreMLBackend_PlansOnce(t *testing.T) {
-	b := newCoreMLBackend(&coreMLPackage{name: "m"}, filepath.Join(t.TempDir(), "m.mlpackage"), 4, t.Logf)
-	var planned, opened []string
-	onEngine := coreml.Placement{NeuralEngine: 6000, CPU: 14}
-	b.plan = func(compiled, function string) (coreml.Placement, error) {
-		planned = append(planned, function)
-		if function == "s512" {
-			return coreml.Placement{CPU: 6014, CPUCore: []string{"ios18.matmul"}}, nil
-		}
-		return onEngine, nil
-	}
-	b.open = func(compiled, function string, length, dim int) (aneFunction, error) {
-		opened = append(opened, function)
-		return &fakeFn{parent: &fakeANE{}, length: length}, nil
-	}
-	for range 3 {
-		if _, _, err := b.load(128); err != nil {
+// A compile that fails once another process installed the compiled model
+// keeps that model, as a failed install does: Core ML stays on.
+func TestCoreMLBackend_CompileFailsAfterAnotherInstall(t *testing.T) {
+	for _, installed := range []bool{true, false} {
+		pkg := &coreMLPackage{name: "m", files: []coreMLFile{{"Manifest.json", ""}}}
+		dir := pkg.dir(t.TempDir())
+		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
-	}
-	if _, _, err := b.load(512); err == nil {
-		t.Fatal("loaded a function planned on the cpu")
-	}
-	if !reflect.DeepEqual(planned, []string{"s128", "s512"}) {
-		t.Fatalf("planned %v, want each function once", planned)
-	}
-	if !reflect.DeepEqual(opened, []string{"s128", "s128", "s128"}) {
-		t.Fatalf("opened %v, want s128 per load and s512 never", opened)
+		if err := os.WriteFile(filepath.Join(dir, "Manifest.json"), []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		b := newCoreMLBackend(pkg, dir, 4, t.Logf)
+		b.tempDir = t.TempDir()
+		b.hasEngine = func() (bool, error) { return true, nil }
+		b.compile = func(string) (string, error) {
+			if installed {
+				if err := os.MkdirAll(filepath.Join(b.compiled, "weights"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			return "", errors.New("no space left on device")
+		}
+		if err := b.prepare(); installed != (err == nil) {
+			t.Fatalf("another install %v: the failed compile returned %v", installed, err)
+		}
 	}
 }

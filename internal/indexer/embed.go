@@ -50,10 +50,10 @@ type EmbedStatus struct {
 
 const (
 	EmbedPhaseWaiting   = "waiting"   // the start delay runs
-	EmbedPhasePreparing = "preparing" // the embedder readies a runtime
+	EmbedPhasePreparing = "preparing" // the embedder readies a runtime the pending texts wait for
 	EmbedPhaseEmbedding = "embedding"
 
-	EmbedBackendANE    = "ane"    // Core ML on the Neural Engine
+	EmbedBackendANE    = "ane"    // Core ML, wherever it runs the function
 	EmbedBackendGPU    = "gpu"    // llama.cpp with the model loaded on a GPU device
 	EmbedBackendCPU    = "cpu"    // llama.cpp without offload, or with no device to offload to
 	EmbedBackendLlama  = "llama"  // llama.cpp in a child that did not report its hardware
@@ -62,9 +62,9 @@ const (
 	EmbedReasonPackageNotReady  = "package_not_ready" // the Core ML package is not on disk or not compiled yet
 	EmbedReasonFunctionLoading  = "function_loading"  // the Neural Engine function for the text's length was not loaded
 	EmbedReasonTooLong          = "too_long"          // longer than every function
-	EmbedReasonANEFailed        = "ane_failed"        // a function failed to load or to predict
+	EmbedReasonANEFailed        = "ane_failed"        // a prediction failed, or no function that holds the text is used: failed to load or predict
 	EmbedReasonANEOff           = "ane_off"           // the Neural Engine path is off for this run
-	EmbedReasonReadinessTimeout = "readiness_timeout" // bulk work stopped waiting for the first function
+	EmbedReasonReadinessTimeout = "readiness_timeout" // bulk work stopped waiting for a function that was loading
 	EmbedReasonGPUFailed        = "gpu_failed"        // GPU offload was demoted after a child died
 	EmbedReasonGPUDisabled      = "gpu_disabled"      // index.local.gpuLayers is 0
 )
@@ -74,12 +74,24 @@ const (
 type EmbedRoute struct {
 	Backends []string
 	Reason   string
+	// Deferred counts the texts the batch has a nil vector for.
+	Deferred int
 }
 
 // RoutedEmbedder is an Embedder that knows which runtimes embedded a
-// batch. titles is nil when documents embed without their names.
+// batch of bulk work; titles is nil when documents embed without names.
+// EmbedRoute.Deferred of its vectors are nil: texts to send again later.
 type RoutedEmbedder interface {
 	EmbedDocsRouted(ctx context.Context, titles, texts []string) ([][]float32, EmbedRoute, error)
+}
+
+// BulkDeferrer is a RoutedEmbedder that says when the texts it left
+// without a vector are worth sending again.
+type BulkDeferrer interface {
+	// DeferredWake returns a channel that closes at the next such
+	// moment. Taken before a batch, it covers every text that batch
+	// defers.
+	DeferredWake() <-chan struct{}
 }
 
 // embedBackends is the runtime of an embedder that has only one.
@@ -91,11 +103,31 @@ func embedBackends(e Embedder) []string {
 }
 
 // BulkPreparer is an Embedder that readies a faster runtime in the
-// background. A drain calls PrepareBulk before every round that has
-// work; it returns once there is nothing to wait for. waiting, when set,
-// is called once if the call is going to wait.
+// background. PrepareBulk returns once there is nothing to wait for and
+// says how that went (Bulk*); waiting runs first if it is going to wait.
 type BulkPreparer interface {
-	PrepareBulk(ctx context.Context, waiting func())
+	PrepareBulk(ctx context.Context, waiting func()) string
+}
+
+// How a PrepareBulk call ended.
+const (
+	BulkNoWait    = "no_wait"    // no runtime to wait for
+	BulkNoPackage = "no_package" // the runtime's files are not on disk, and nothing downloads them
+	// The download of the runtime's files failed, or outlasted the wait.
+	BulkDownloadFailed  = "download_failed"
+	BulkDownloadTimeout = "download_timeout"
+	BulkReady           = "ready"    // its first function is loaded
+	BulkFailed          = "failed"   // its first function is not used
+	BulkOff             = "off"      // the runtime is off for this child
+	BulkTimeout         = "timeout"  // the wait ran into its bound, now or earlier
+	BulkNoChild         = "no_child" // the child did not start, or exited
+	BulkCancelled       = "cancelled"
+)
+
+// BulkHolder is an Embedder that keeps its runtime loaded while a drain
+// holds it, although the drain sends it nothing.
+type BulkHolder interface {
+	HoldBulk() (release func())
 }
 
 // StampedEmbedder names the vector space it embeds into, so an index

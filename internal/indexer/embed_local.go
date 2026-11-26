@@ -86,7 +86,7 @@ type Local struct {
 	// llama.cpp embeds everything.
 	ane *neuralEngine
 	// routes counts which runtime embedded the texts of the last
-	// EmbedTitledDocs call. Guarded by mu.
+	// document call. Guarded by mu.
 	routes workerRoutes
 }
 
@@ -269,21 +269,15 @@ func (l *Local) startNeuralEngine(dir string) {
 	if dir == "" || l.coreml == nil || !l.loaded || l.ane != nil {
 		return
 	}
-	dim := int(l.nEmbd)
-	lengths := usableLengths(l.coreml.lengths, l.maxDocTokens())
-	l.ane = newNeuralEngine(newCoreMLBackend(l.coreml, dir, dim, aneStderrLog), lengths, dim, aneStderrLog)
+	l.ane = l.newNeuralEngine(newCoreMLBackend(l.coreml, dir, int(l.nEmbd), aneStderrLog))
 	l.ane.start()
 }
 
-// usableLengths drops the functions no text can need: those past the
-// first one that holds the longest text the embedder sends.
-func usableLengths(lengths []int, maxTokens int) []int {
-	for i, l := range lengths {
-		if l >= maxTokens {
-			return lengths[:i+1]
-		}
-	}
-	return lengths
+// newNeuralEngine is the path over every function of the package. A text
+// is capped by tokenize; a function longer than any text is loaded only
+// for the texts of smaller ones that failed.
+func (l *Local) newNeuralEngine(backend aneBackend) *neuralEngine {
+	return newNeuralEngine(backend, l.coreml.lengths, int(l.nEmbd), aneStderrLog)
 }
 
 // llamaRuntime guards the process-global llama.cpp state (Load + Init
@@ -460,7 +454,7 @@ func l2Normalize(vec []float32) {
 // run ensureLoaded.
 func (l *Local) embedOne(text string) ([]float32, error) {
 	tokens := l.tokenize(text)
-	if vec, ok := l.embedANE(tokens); ok {
+	if vec, ok, _ := l.embedANE(tokens, false); ok {
 		return vec, nil
 	}
 	vecs, err := l.embedGroup([][]llama.Token{tokens})
@@ -471,21 +465,54 @@ func (l *Local) embedOne(text string) ([]float32, error) {
 }
 
 // embedANE embeds one tokenized text on the Neural Engine. ok is false
-// when llama.cpp has to embed it. Caller holds l.mu.
-func (l *Local) embedANE(tokens []llama.Token) ([]float32, bool) {
+// when it did not: llama.cpp has to embed the text, or, for a document
+// of bulk work whose function is loading, nobody does yet (deferred).
+// Caller holds l.mu.
+func (l *Local) embedANE(tokens []llama.Token, bulk bool) (vec []float32, ok, deferred bool) {
 	if l.ane == nil {
-		return nil, false
+		return nil, false, false
 	}
+	ids := tokenIds(tokens)
+	if bulk {
+		vec, ok, deferred = l.ane.embedBulk(ids)
+	} else {
+		vec, ok = l.ane.embed(ids)
+	}
+	switch {
+	case deferred:
+		return nil, false, true
+	case !ok:
+		l.routes.Miss = l.ane.lastMiss()
+		return nil, false, false
+	}
+	return l.finish(vec), true, false
+}
+
+func tokenIds(tokens []llama.Token) []int32 {
 	ids := make([]int32, len(tokens))
 	for i, t := range tokens {
 		ids[i] = int32(t)
 	}
-	vec, ok := l.ane.embed(ids)
-	if !ok {
-		l.routes.Miss = l.ane.lastMiss()
-		return nil, false
+	return ids
+}
+
+// llamaGroup is llama.cpp's decode group from start, a text the Neural
+// Engine path just missed: later texts join only while that path leaves
+// them to llama.cpp too. misses is why, per text. Caller holds l.mu.
+func (l *Local) llamaGroup(tokenized [][]llama.Token, lens []int, start int, bulk bool) (end int, misses []string) {
+	end = groupEnd(lens, start, l.nCtx, l.batchDocs)
+	if l.ane == nil {
+		return end, nil
 	}
-	return l.finish(vec), true
+	misses = []string{l.routes.Miss}
+	for i := start + 1; i < end; i++ {
+		miss, falls := l.ane.fallsBack(tokenIds(tokenized[i]), bulk)
+		if !falls {
+			return i, misses
+		}
+		misses = append(misses, miss)
+	}
+	return end, misses
 }
 
 // finish turns a runtime's pooled vector into the stored one: the
@@ -585,6 +612,13 @@ func (l *Local) EmbedsTitles() bool {
 }
 
 func (l *Local) EmbedTitledDocs(ctx context.Context, titles, texts []string) ([][]float32, error) {
+	return l.embedDocs(ctx, titles, texts, false)
+}
+
+// embedDocs is EmbedTitledDocs. With bulk, a text whose Neural Engine
+// function is loading gets a nil vector in place of a llama.cpp one
+// (neuralEngine.embedBulk); lastRoutes lists those texts.
+func (l *Local) embedDocs(ctx context.Context, titles, texts []string, bulk bool) ([][]float32, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if err := l.ensureLoaded(); err != nil {
@@ -600,32 +634,52 @@ func (l *Local) EmbedTitledDocs(ctx context.Context, titles, texts []string) ([]
 		tokenized[i] = l.tokenize(docPrompt(l.docPrefix, title) + t)
 		lens[i] = len(tokenized[i])
 	}
+	return l.embedTokenized(ctx, tokenized, lens, bulk)
+}
+
+// embedTokenized routes tokenized documents to the runtimes. Caller
+// holds l.mu.
+func (l *Local) embedTokenized(ctx context.Context, tokenized [][]llama.Token, lens []int, bulk bool) ([][]float32, error) {
 	l.routes = workerRoutes{}
-	out := make([][]float32, 0, len(texts))
-	for start := 0; start < len(texts); {
+	out := make([][]float32, 0, len(tokenized))
+	for start := 0; start < len(tokenized); {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if vec, ok := l.embedANE(tokenized[start]); ok {
+		vec, ok, deferred := l.embedANE(tokenized[start], bulk)
+		if ok {
 			out = append(out, vec)
 			l.routes.ANE++
 			start++
 			continue
 		}
-		end := groupEnd(lens, start, l.nCtx, l.batchDocs)
+		if deferred {
+			out = append(out, nil)
+			l.routes.Deferred = append(l.routes.Deferred, start)
+			start++
+			continue
+		}
+		end, misses := l.llamaGroup(tokenized, lens, start, bulk)
 		vecs, err := l.embedGroup(tokenized[start:end])
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, vecs...)
 		l.routes.Llama += end - start
+		for _, miss := range misses {
+			if l.routes.Misses == nil {
+				l.routes.Misses = map[string]int{}
+			}
+			l.routes.Misses[miss]++
+			l.routes.Miss = miss
+		}
 		start = end
 	}
 	return out, nil
 }
 
-// lastRoutes is which runtime embedded the texts of the last
-// EmbedTitledDocs call.
+// lastRoutes is which runtime embedded the texts of the last document
+// call.
 func (l *Local) lastRoutes() workerRoutes {
 	l.mu.Lock()
 	defer l.mu.Unlock()

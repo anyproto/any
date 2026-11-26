@@ -33,7 +33,7 @@ type stopResult struct {
 func newStopCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "stop",
-		Short: "stop the running server for this data dir (signal, no HTTP)",
+		Short: "stop the running server for this data dir (a signal on Unix, no HTTP)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if flags.Addr != "" {

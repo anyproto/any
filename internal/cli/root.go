@@ -87,14 +87,14 @@ func newRootCmd() *cobra.Command {
 		Short: "any — all-in-one binary wrapping any-sync-sdk over HTTP",
 		Long: `any is a single binary that provides an HTTP/JSON server over
 the any-sync-sdk plus a CLI client. Run 'any run' to start the server,
-then any other 'any <cmd>' makes HTTP calls to it.`,
+then every 'any <cmd>' that works on its data makes HTTP calls to it.
+'any init' and 'any debug neural-engine' need no server, and on Unix
+'any stop' signals the server that holds the account's lock, without HTTP.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		// Without --addr a client command reaches the server serving
-		// the data dir's account, wherever it bound (an ephemeral port
-		// included): its recorded server.addr wins over the fixed
-		// default. Server-side and lock-based commands are exempt —
-		// `run` binds the flag, `init` and `stop` never connect.
+		// Without --addr a client command reaches the server serving the data
+		// dir's account at its recorded server.addr, an ephemeral port included.
+		// `run` binds the flag; `init`, `stop` and `debug neural-engine` never connect.
 		PersistentPreRun: func(cmd *cobra.Command, _ []string) {
 			if flags.Addr != "" {
 				return
@@ -102,6 +102,10 @@ then any other 'any <cmd>' makes HTTP calls to it.`,
 			switch topLevelName(cmd) {
 			case "run", "init", "stop":
 				return
+			case "debug":
+				if cmd.Name() == "neural-engine" {
+					return
+				}
 			}
 			if addr := discoverAddr(); addr != "" {
 				flags.Addr = addr

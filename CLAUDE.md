@@ -54,8 +54,10 @@ else.
 
 - `any run` starts a foreground HTTP/JSON server on `127.0.0.1:2046`. The
   same server runs in-process for the mobile shims (`internal/embedded`).
-- Every other `any <cmd>` is a thin CLI client that calls that server over
-  HTTP.
+- Every server-facing `any <cmd>` is a thin CLI client that calls that
+  server over HTTP. A few work without HTTP, such as `any init`,
+  `any stop` (signals the lock holder) and `any debug neural-engine`
+  (runs Core ML in the CLI).
 
 v1 is a prototype. Breaking wire changes are expected and are absorbed
 by bumping the `/v1/` prefix. Start with `docs/00-overview.md` (scope,
@@ -110,16 +112,16 @@ CI and release artifacts: `docs/18-ci.md`.
 
 ## Architecture invariants
 
-- **The CLI never opens the SDK or any-store and never talks to peers.**
-  Every caller goes through HTTP. If the CLI needs something, add an
-  endpoint.
+- **A CLI command that works on server data goes through HTTP.** It
+  never opens the SDK or any-store and never talks to peers; if it needs
+  something, add an endpoint.
 - **echo v4, every route under `/v1/`**, with routes grouped per SDK
   section (`docs/02-server.md`).
-- **Endpoints map 1:1 onto SDK methods, and CLI commands map 1:1 onto
-  endpoints.** No convenience endpoints that aggregate SDK calls. The
-  consumer-side exceptions are search and backlinks (the local index), the
-  event bus and processes, the local store, the editor markdown bridge and
-  catalog setup.
+- **Endpoints map 1:1 onto SDK methods, and server-facing CLI commands
+  map 1:1 onto endpoints.** No convenience endpoints that aggregate SDK
+  calls. The consumer-side exceptions are search and backlinks (the
+  local index), the event bus and processes, the local store, the editor
+  markdown bridge and catalog setup.
 - **Localhost-only.** The listener refuses non-loopback addresses. There
   is no caller authentication and no rate limiting. `/v1` answers
   `401 auth.required` until an account is booted, and a managed server's

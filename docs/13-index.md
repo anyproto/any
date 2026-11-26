@@ -642,7 +642,8 @@ reads their ids and texts → `EmbedDocs` in batches of
 `index.embedBatch` (default 64), `index.embedConcurrency` batches in
 parallel (default 1; 4 for `openai`, and for `auto` with a key) →
 `SetTitledVectors` (one write transaction per batch, update-only) →
-`EnsureVectorIndex`. Advance nudges it after each page with new text; a
+`EnsureVectorIndex`. Advance nudges it after each page that left a doc
+newly pending, naming those docs; a
 1-minute ticker retries after embedder failures. A rewritten record goes
 back to `pending`. `index.embedder: none` ⇒ the loop doesn't run and the
 index is FTS-only.
@@ -651,9 +652,21 @@ With the local embedder (`local`, and `auto` without a key) a drain
 that finds texts pending waits until `index.embedStartDelay` after the
 account boots, 2 min by default: the first minutes are left to sync,
 the full-text pass and the client's startup. Its process row says
-`waiting` meanwhile (`22-processes.md` § Internal producers). `0` is no
-wait, as for an HTTP embedder. A loop drains once when it starts, for
-what was pending before it. A search embeds its query regardless.
+`waiting` meanwhile (`22-processes.md` § Internal producers). Nothing
+embeds under the delay. Where the Neural Engine path is planned and its
+package is on disk, the embedder child starts under the delay and
+readies the path's first function (§ Neural Engine), and the backlog
+opens at the later of the two; anywhere else the child starts with the
+first batch. `0` is no delay, as for an HTTP embedder: the waits for
+the package's download and for that first function are then the only
+ones. A loop drains once when it
+starts, for what was pending before it. A search embeds its query
+regardless.
+
+A batch that comes back without a vector for a text, from an embedder
+that did not say it deferred it, is an error for that text alone: the
+other vectors land, the drain reads on past the text, and ends the pass
+in the error, to try again on the tick.
 
 A vector lands only on the input it was embedded from. The advance loop
 writes while a batch embeds, so the landing checks each doc inside its
@@ -820,7 +833,29 @@ stopped (stdin EOF), which returns all of its memory: llama.cpp keeps
 its decode buffers at their high-water mark for the life of the
 process, over 1 GB after one 2048-token document. The countdown starts
 when a frame ends, so a frame in flight is never cut; a slot held
-without a frame when it runs out only postpones the check. The stop
+without a frame when it runs out only postpones the check. A child
+with a Core ML path is also kept under a drain, from its start delay
+until it returns. A load the stop cuts short is asked for again by the
+next text that needs its function. The timer reaps a child it finds
+dead before it looks at a hold or the idle time, so one that died under
+a drain is reaped at the timer's next turn, not by the next request.
+Nothing was asked of an idle child,
+so one the timer finds dead is reaped with no demotion and no restart
+backoff, whether its Neural Engine path was on or off. The one
+exception is a child found dead inside a Core ML call of its own, which
+the server follows by the child's lines (the preparation from
+`starting` to the first `s<N> loading`, `s<N> ready`, `s<N> not used`
+or `off`, a load from `s<N> loading`, an idle release between `s<N>
+releasing` and `s<N> released`): it died in Core ML, and the next child
+runs without the Neural Engine. The GPU is never charged for an idle
+death. A child that a request finds already ended is reaped the same
+way: it ended between frames, and the request spawns its own child,
+with the runtimes as that reap left them. A request that cannot be written to its child
+was never asked of it either: the child is reaped the same way, that
+request fails as embedder-unavailable, and the next one spawns the
+child. A death that cost no runtime sets no backoff. A thread-count
+change (`SetThreads`) and a spec that moved on stop a child as well.
+The stop
 holds the slot: a request that arrives meanwhile waits for it and spawns
 a fresh child (about a second warm; a cold model load takes longer), and
 a shutdown that arrives meanwhile kills the child rather than waiting
@@ -838,8 +873,8 @@ child they kill only the child: the round fails, its docs stay
 **The child only embeds.** It gets a model path and decode parameters
 and answers with vectors. It never opens the index db, the data dir or
 any-store; the cursor, `pending` marking, `SetVectors`, the vector index,
-model discovery and the downloads all stay in the server. The one thing
-it writes is the compiled Core ML model in the model cache (§ Neural
+model discovery and the downloads all stay in the server. What it
+writes is in the model cache: the compiled Core ML model (§ Neural
 Engine).
 
 **Failure handling.** A dead child, a desynchronized stream, or a frame
@@ -857,7 +892,11 @@ registers; what killed the child is at the report's start or just above
 it. A caller that
 goes away is not a fault either: a request already on the wire is read
 to completion so the stream stays usable, the child is kept, and the
-next caller finds it ready.
+next caller finds it ready. A child whose stdin ends exits: at once
+mid-decode, else once it has closed its runtimes, and 10 s after the
+end when its model load or that close does not return, so a child whose
+server died does not outlive it wedged in native code. It watches
+stdin from before it loads the model.
 
 **Priority.** The child runs below the server: `index.local.niceness`
 (default 10, 0 disables) nices it on Unix and lowers its priority class
@@ -916,9 +955,12 @@ On an Apple Silicon Mac the embedder child runs EmbeddingGemma 2 on the
 Neural Engine through Core ML, next to llama.cpp. The model's Core ML
 package holds one function per fixed length: 128, 256, 512, 1,024 and
 2,048 tokens. A text runs on the smallest loaded function that holds
-it. llama.cpp tokenizes for both runtimes and embeds every other text:
-one that no loaded function holds, and one longer than 2,048 tokens,
-which only a larger `index.local.contextSize` lets through.
+it. llama.cpp tokenizes for both runtimes and embeds what the functions
+do not: a text longer than 2,048 tokens, which only a larger
+`index.local.contextSize` lets through, a query that no loaded function
+holds, and any text when the path is off, its package is missing or
+every function that holds the text is not used. A document whose function is loading waits for
+it (below).
 
 Both runtimes write one index. A function returns the model's own unit
 vector (cosine 0.9999 to the full-precision weights, 0.9996 to
@@ -934,8 +976,8 @@ model, not the runtime.
   or downloadable. Anywhere else llama.cpp embeds alone.
 - `on` is `auto` that refuses to boot when one of those conditions
   fails. What only the child can see leaves llama.cpp embedding alone
-  under `on` too: no Neural Engine listed, a function planned on the
-  CPU, a failed compile.
+  under `on` too: no Neural Engine listed, no function that loads, a
+  failed compile.
 - `off` is llama.cpp alone.
 
 **The package.** Its three files are downloaded, each sha256-pinned,
@@ -945,57 +987,193 @@ download and after it: every model download reports as
 not apply to the package. With `index.local.modelPath` nothing is
 downloaded and a package already in the models dir is used. The child
 checks the files against their checksums and compiles the package once
-into `<name>-<digest>.mlmodelc` beside it. Until the package is complete
-llama.cpp embeds everything, and the child looks for it again every
-30 s. The package's licence texts
+into `<name>-<digest>.mlmodelc` beside it. Core ML compiles into the
+system temporary directory; when the models dir is on another volume,
+the compile is renamed there to a staging name with the child's pid and
+copied from it, and a compile that cannot be renamed is removed and not
+installed. A staging directory, there or beside the compiled model,
+that a child stopped mid-install left behind is removed by a later
+preparation once it is an hour old and no process has its pid; a file
+or a link under a staging name is left alone. A compile, a rename or a
+copy that fails after another child installed the compiled model leaves
+that model in use. Until the package is complete
+llama.cpp embeds queries, the child looks for the package again every
+30 s, and bulk work waits for its download (below). The package's licence texts
 (`LICENSE`, `NOTICE` and the licence the notice refers to) follow it
 into `<name>-<digest>.licenses/`, pinned the same way; one that cannot
 be fetched is tried again at the next start and holds nothing back.
 
 **Function lifetime.** The smallest function loads first and stays for
 queries: when the child starts if the package is ready, else within
-30 s of it being there. Any other loads in the
+30 s of it being there, or at once when a document of bulk work finds
+the package landed. Any other loads in the
 background on the first text that needs it, and a timer releases it five
 minutes after its last use; idle retirement of the child releases all of
-them. The first load of a function on a machine specializes it for the
-Neural Engine: about a minute per function on an M2, six for all five.
-After that a child's first load of a function takes two to three
-seconds and a reload under one. While a function loads, a larger loaded
-one serves its texts, else llama.cpp.
+them. Functions asked for while another loads are loaded smallest
+first; a load in flight is not interrupted, so a function asked for
+behind a longer one's first load waits that load out. When the smallest
+function is not used, the smallest that is stays loaded in its place. A load opens the function and has it predict four texts: two
+short ones of one length with different tokens, and two of its full
+length that differ in their second half. Each output must be a unit
+vector and no two may be alike
+(cosine above 0.999), or, after three tries, the function is not used.
+The first load of
+a function specializes it for the Neural Engine, which takes minutes
+for the longest ones; Core ML keeps the result, and a later load takes
+seconds. While a function loads, a larger loaded
+one serves its texts; with none, a query goes to llama.cpp and a
+document waits. A function that is not used (it failed to load or kept
+failing) hands its texts to the next larger
+one that is, which is asked for and waited for like any other. The path
+keeps every function of the package for that, whatever
+`index.local.contextSize` caps a text at: with texts of at most 128
+tokens a failed 128-token function leaves them to the 256-token one.
 
-**Bulk work waits for the first function.** Before a drain's first
-batch the server starts the child and waits for the path's first
-function, so a backlog does not run on llama.cpp while Core ML
-prepares. The drain's process row is announced before the wait. The
-wait ends when the child reports a function loaded, a failed load or
-the path off, when the child exits, or 10 min after the child's first
-waiter, for every waiter at once; a wait that ran into that bound ends
-every other one and is the last until the next boot. Nothing waits
-while the package is not on disk. A drain asks before every round that
+**Bulk work waits for the first function.** A drain that finds texts
+pending starts the child at once, under the start delay, and before its
+first batch waits for the path's first function, so a backlog does not
+run on llama.cpp while Core ML prepares. Bulk work opens at the later
+of the start delay and that function. The drain's process row is
+announced before the wait. The
+wait ends when the child reports its first function loaded or not
+used, or the path off (a report on another function, such as a larger
+one's failed load, does not end it), when the child exits, or 10 min after the
+child's first waiter, for every waiter at once; a wait that ran into that bound ends
+every other one and is the last until the next boot. While the package
+is still downloading, queued behind the GGUF or transferring, the wait
+is for the download first, the drain's row in `preparing` (the
+`index.model_download` row has the bytes): the server reads its own
+download's state, and bulk work does not open on llama.cpp meanwhile.
+That wait ends when the package is whole on disk, and the wait for the
+first function follows; it ends without the package when the download
+ends failed (`download_failed`) or 30 min after its first waiter
+(`download_timeout`), for every waiter and every later call. Bulk work
+then goes to llama.cpp until the package is there, which needs the GGUF
+on disk: while that is still downloading too, texts stay `pending`.
+With no download for
+a package that is not on disk (`index.local.modelPath`), nothing waits
+and the outcome is `no_package`.
+A drain asks before every round that
 has work, and a child whose path has settled answers at once: a package
 that lands during a drain, or a child that replaces the one waited on,
 is waited for then. The child is not retired as idle meanwhile.
 Searches are not held: a query embeds on llama.cpp until the function
 is there.
 
+**A document waits for its function.** Past the first function, the
+child answers a frame of bulk work without a vector for a text whose
+function is queued or loading, or whose package is on disk and still
+being prepared, instead of embedding it on llama.cpp.
+The text stays `pending`, and the drain goes on with the texts behind
+it: once it has left a doc it pages on by doc id from the last one it
+read (`Store.PendingAfter`), which no write ahead of it or delete
+behind it can move, so
+texts that fit a loaded function keep landing. When nothing else is
+pending the drain waits, its row in `preparing`, until the child
+reports a function loaded or not used, llama.cpp taking a
+function's texts past the bound, or the path off, the
+child stops or exits, or a minute after the pass began; then it starts
+over from the head of the queue, which sends the texts it left again.
+The same report heard in the middle of a pass restarts it
+from the head at the next page. No other line of the child does: a
+release and a single failed prediction change nothing for a text that
+waits. Newly written texts do not start the pass over
+either. The advance's nudge names the docs its page left newly pending,
+a renamed or unnamed object's windows included, and the drain reads
+those by id (`Store.PendingByIds`) and embeds them in a page of their
+own between two read on from the cursor, or at once while it waits, so
+a new text is embedded wherever it sorts and the texts left behind are
+not sent again for it. The reads by id take named docs in the order
+they were named; the cursor can reach one of them first. Once the
+cursor has reached the end of the queue the pass reads
+named docs alone: the queue is not read from the cursor again until the
+next pass. A doc a pass left deferred is not sent again in that pass
+while its text and title stand, whichever read finds it next, the
+cursor's or one by id; under another text or title it is another input
+and is sent (a pass remembers 65,536 such docs, by a hash of the
+input). Docs that keep
+being named do not put off the minute after which the texts left behind
+are sent again. A doc that changed while it embedded, whose
+vector is therefore not landed, is read again with the named docs; with
+nothing left behind, where a short page would end the drain, the head
+of the queue is read once more for it. A doc that takes no vector on
+that read either is read past, also when it fills a page by itself, so
+the docs behind it embed, and it waits for the next read of the head. A nudge
+that names no doc (the sweep's, or more than 1,024 docs between two
+looks) has the pass start over instead, no sooner than a minute after
+it began. From the moment a pass starts over on texts left behind, or
+the drain has waited, the row says `preparing` until a vector comes. A drain holds a child with a Core ML path against
+idle retirement from its start delay until it returns. The
+wait for one function is bounded at 10 min from the first document
+deferred for it: past that the child says so, and llama.cpp embeds the
+function's documents until it is loaded (`readiness_timeout`). The
+bound stays that document's until a document embeds on that function
+(one that embeds on a larger function instead leaves it standing), so
+a function that loaded and was not used in time does not start a new
+wait, and a function loaded for a waiting document is not released as
+idle before the bound; one that loads after the bound is owed to nobody. The bound of the
+wait for the first function is separate and ends only that wait.
+The path off, a missing package, a text over 2,048 tokens and a text
+whose every function is not used go to llama.cpp at once. A query never waits: it runs on a loaded function that holds it,
+else on llama.cpp. With several documents to a decode
+(`index.local.batchDocs`), each is routed on its own.
+
 **Placement.** A machine that lists no Neural Engine never loads the
-package. Before a function first loads, the child reads Core ML's
-compute plan for it, once per child, and refuses a function whose
-convolution, matmul, linear or softmax operations are planned on the
-CPU. The digest in the package's
-directory name is of its pinned checksums, so another pin is another
-directory with a compiled model of its own.
+package. Past that the child reads no compute plan: a function that
+loads and predicts is used, wherever Core ML runs it, and nothing about
+it is kept on disk. Its ready line has the time of its first prediction
+(§ In the log), which is several times longer off the Neural Engine
+than on it. A function that fails to load (`s<N> not used: …`)
+is not used for the life of that child, and the next child loads it
+again. Where Core ML plans each function on a given machine is read on
+demand, outside the server: `any debug neural-engine` (`01-cli.md`
+§ Debug) compiles the package apart and reports each function's plan
+with a verdict (more than 100 operations on the Neural Engine and no
+convolution, matmul, linear or softmax operation on the CPU), its load
+time and its speed. The digest in the package's directory name is of its pinned
+checksums, so another pin is another directory with a compiled model of
+its own.
 
 **Failure.** A prediction that fails, or returns a vector that is not
 unit length, leaves that text to llama.cpp. Three in a row on one
-function retire that function for the life of the child; a larger
-loaded one or llama.cpp takes its texts. A child that dies after it
+function retire that function for the life of the child; the next
+larger one, or llama.cpp when none is left, takes its texts. A child
+that dies under a request after it
 began using Core ML is respawned without the Neural Engine. That
 demotion comes before the GPU one (§ GPU offload), one runtime per
 death, because the death does not say which runtime caused it. A death
 that repeats in a child started without the Neural Engine clears it: it
 comes back on, once per process. A child that dies with it on after
 that stays without it for the rest of the process.
+
+**In the log.** The child's reports on the path are logged as
+`local embedder neural engine` with a `status`: `starting`, before the
+first Core ML call; `package compiled in …` when this child compiled
+it; `s<N> loading`, then
+`s<N> ready (open …, first predict …, validate …; asked for … ago)` or
+`s<N> not used: …`, or `s<N> loaded and discarded` for a function whose
+path was closed while it loaded (`first predict` is the first of the
+predictions `validate` times, four or more after a retry: off the
+Neural Engine it is several times what it is on it);
+`s<N> failed: …` for a prediction and `s<N> not used any more: 3
+failures in a row`; `s<N> still loading after …`; `s<N> releasing`, then
+`s<N> released after …`; and `off, …`. `bulk embedding opened` is logged once per run, when
+the first drain got past its waits: `openedBy` is `start_delay`,
+`embedder` (its preparation outlasted the delay, by
+`embedderWaitPastDelay`) or `no_wait`, with `sinceStart`, and
+`embedder` says how that preparation went: `ready`, `failed` or `off`
+for the first function, `timeout`, `no_child`, `download_failed`,
+`download_timeout`, `no_package` (not on disk, not downloaded) or `no_wait`
+(no Neural Engine path); a drain cancelled under its wait logs nothing. With a Neural Engine path,
+`local embedder bulk routing` counts the bulk texts since the previous
+such line (`ane`, `llama`) over `window`, at most every 30 s,
+when the child stops, and only when some ran on llama.cpp or were left
+pending (work with nothing to say stays counted for the next line; a
+child demoted off Core ML counts as `ane_off`): `llamaReasons` has the count per reason (`none` = no reason to
+give), `deferred` how many times a text was left pending and
+`deferredFor` the time since the first of them; a text left pending in
+two passes counts twice. None of these lines carries a text, an id or a
+path.
 
 Core ML is called through the Objective-C runtime, so the binary stays
 CGO-free and cross-compiled (`internal/indexer/coreml`).

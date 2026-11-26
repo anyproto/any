@@ -186,15 +186,14 @@ func fileURL(path string) objc.ID {
 	return classSend(clsURL, "fileURLWithPath:", nsString(path))
 }
 
-// describe renders an NSError; call it while the error is alive.
+// describe names an NSError by its domain and code; call it while the
+// error is alive. Not its description: Core ML puts file URLs in those,
+// and what this returns is logged.
 func describe(nserr objc.ID) string {
-	if nserr == 0 {
+	if nserr == 0 || !responds(nserr, "domain") || !responds(nserr, "code") {
 		return "no error reported"
 	}
-	if msg := goString(send(nserr, "localizedDescription")); msg != "" {
-		return msg
-	}
-	return "unknown error"
+	return fmt.Sprintf("%s error %d", goString(send(nserr, "domain")), objc.Send[int](nserr, sel("code")))
 }
 
 func responds(id objc.ID, name string) bool {
@@ -426,7 +425,8 @@ func readVector(arr objc.ID, out []float32) error {
 
 // Plan loads the compute plan of one function of the compiled model and
 // counts the preferred device of every operation. It needs no loaded
-// function, so a plan off the Neural Engine is refused before a load.
+// function, and costs about what loading one does.
+// A plan Core ML does not answer in time is a *LatePlanError.
 func Plan(compiled, function string) (Placement, error) {
 	var p Placement
 	if err := load(); err != nil {
@@ -438,40 +438,28 @@ func Plan(compiled, function string) (Placement, error) {
 	err := scope(func() error {
 		cfg := newConfiguration(function)
 		defer send(cfg, "release")
-		type loaded struct {
-			plan objc.ID
-			err  string
-		}
-		done := make(chan loaded, 1)
+		done := make(chan planned, 1)
 		// Runs on a Core ML queue; the plan is retained for the caller.
 		handler := objc.NewBlock(func(_ objc.Block, plan, nserr objc.ID) {
 			if plan == 0 {
-				done <- loaded{err: describe(nserr)}
+				done <- planned{err: describe(nserr)}
 				return
 			}
-			done <- loaded{plan: send(plan, "retain")}
+			done <- planned{plan: uintptr(send(plan, "retain"))}
 		})
 		defer handler.Release()
 		classSend(clsPlan, "loadContentsOfURL:configuration:completionHandler:", fileURL(compiled), cfg, handler)
-		var plan objc.ID
-		select {
-		case r := <-done:
-			if r.plan == 0 {
-				return fmt.Errorf("coreml: compute plan for %s: %s", function, r.err)
-			}
-			plan = r.plan
-		case <-time.After(planTimeout):
-			// A plan that still arrives is released, not kept.
-			go func() {
-				if r := <-done; r.plan != 0 {
-					_ = scope(func() error {
-						send(r.plan, "release")
-						return nil
-					})
-				}
-			}()
-			return fmt.Errorf("coreml: compute plan for %s: no answer in %s", function, planTimeout)
+		// A plan that still arrives after the wait is released, not kept.
+		got, err := awaitPlan(done, function, planTimeout, func(late uintptr) {
+			_ = scope(func() error {
+				send(objc.ID(late), "release")
+				return nil
+			})
+		})
+		if err != nil {
+			return err
 		}
+		plan := objc.ID(got)
 		defer send(plan, "release")
 
 		structure := send(plan, "modelStructure")
@@ -493,7 +481,7 @@ func Plan(compiled, function string) (Placement, error) {
 
 // walkBlock counts the operations of one program block and of the blocks
 // nested in them. An operation with nested blocks and no device of its
-// own is a container and is not counted.
+// own is a container and is not counted; one with neither is unknown.
 func walkBlock(plan, block objc.ID, p *Placement) error {
 	if !responds(block, "operations") {
 		return fmt.Errorf("coreml: compute plan: unreadable block")
@@ -511,6 +499,8 @@ func walkBlock(plan, block objc.ID, p *Placement) error {
 			}
 			device = send(usage, "preferredComputeDevice")
 		}
+		nested := send(op, "blocks")
+		blocks := objc.Send[int](nested, sel("count"))
 		switch {
 		case isKind(device, clsNeuralEngine):
 			p.NeuralEngine++
@@ -521,9 +511,13 @@ func walkBlock(plan, block objc.ID, p *Placement) error {
 			if name := goString(send(op, "operatorName")); coreOperator(name) {
 				p.CPUCore = append(p.CPUCore, name)
 			}
+		case blocks == 0:
+			p.Unknown++
+			if name := goString(send(op, "operatorName")); coreOperator(name) {
+				p.UnknownCore = append(p.UnknownCore, name)
+			}
 		}
-		nested := send(op, "blocks")
-		for j, m := 0, objc.Send[int](nested, sel("count")); j < m; j++ {
+		for j, m := 0, blocks; j < m; j++ {
 			if err := walkBlock(plan, send(nested, "objectAtIndex:", j), p); err != nil {
 				return err
 			}

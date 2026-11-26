@@ -133,7 +133,9 @@ func initWallet(cmd *cobra.Command, dir, walletPath, passkey, mnemonic string, i
 		return err
 	}
 	if firstRun && printPhrase {
-		server.PrintMnemonic(provider.Mnemonic())
+		if err := server.PrintMnemonic(cmd.ErrOrStderr(), provider.Mnemonic()); err != nil {
+			return fmt.Errorf("the wallet was created, but its recovery phrase could not be written: %w", err)
+		}
 	}
 	id, err := server.AccountID(cmd.Context(), provider)
 	if err != nil {
@@ -151,8 +153,8 @@ func printInitResult(cmd *cobra.Command, accountId string, created, loginPending
 	if err != nil {
 		return err
 	}
-	fmt.Fprintln(cmd.OutOrStdout(), string(out))
-	return nil
+	_, err = fmt.Fprintln(cmd.OutOrStdout(), string(out))
+	return err
 }
 
 // rootWalletID best-effort derives the root (default) wallet's account

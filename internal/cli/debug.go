@@ -13,7 +13,7 @@ func newDebugCmd() *cobra.Command {
 		Use:   "debug",
 		Short: "diagnostic snapshots (not stable — see `any sync-status` for production)",
 	}
-	cmd.AddCommand(newDebugSpaceCmd(), newDebugObjectCmd(), newDebugP2PCmd())
+	cmd.AddCommand(newDebugSpaceCmd(), newDebugObjectCmd(), newDebugP2PCmd(), newDebugNeuralEngineCmd())
 	return cmd
 }
 

@@ -5,8 +5,12 @@
 - **Default mode is client.** `any space get <id>` sends a GET to the
   running server.
 - **Running the server is an explicit subcommand.** `any run`.
-- **Commands map 1:1 onto endpoints.** Not every endpoint has a
-  command; the ones below without one are HTTP-only (`03-api.md`).
+- **Commands that work on the server's data make HTTP requests to it.**
+  Not every endpoint has a command; the ones below without one are
+  HTTP-only (`03-api.md`). A few commands work without HTTP: `any init`
+  and `any debug neural-engine` need no server, and `any stop` signals
+  the server that holds the account's instance lock, failing when none
+  does.
 - **Output is JSON.** Pretty-printed (easier for both humans and piping
   through `jq`); streams print one JSON object per frame. No table
   rendering.
@@ -37,8 +41,9 @@ any version                      # print the binary version, and the server's wh
 
 `any init` is the explicit first-run flow. Bare `init` generates a
 fresh account under `<root>/<accountId>/`, prints the BIP-39 mnemonic
-to stderr once and `{accountId, created}` to stdout; when any account
-already exists it is a no-op that lists them. `--mnemonic` /
+to stderr once and `{accountId, created}` to stdout; a mnemonic that
+cannot be written fails it (exit 1) with the wallet already created.
+When any account already exists it is a no-op that lists them. `--mnemonic` /
 `--mnemonic-stdin` authorize an EXISTING account: the same phrase
 always derives the same account id while the device key is freshly
 generated — the supported way to add a second device (never copy
@@ -864,7 +869,71 @@ override).
 any debug space  <spaceId>                  # per-peer headsync counters (in-memory)
 any debug object <spaceId> <objectId>       # tree + sync snapshot (one-shot; walks the tree)
 any debug p2p                               # GET /v1/debug/p2p — LAN + global layers, known peers
+any debug neural-engine [--function s128]   # no server: Core ML plan, load and predict times per function
 ```
+
+`any debug neural-engine` runs in the CLI process, without a server, on
+an Apple Silicon Mac. It takes the pinned Core ML package of
+`embeddinggemma-2` from `<root>/models` (`--data-dir` / `--config` pick
+the root, as for `any run`), checks it against its pin, compiles it
+into a temporary directory that it removes at the end, also when it is
+interrupted, and for each
+function (or the ones named with `--function`, repeatable) loads it,
+predicts once, times 50 predictions of a text three quarters of the
+function's length, and then reads Core ML's compute plan. Progress goes
+to stderr, which may be closed without stopping the run, and the result
+to stdout:
+
+```
+{
+  "model": "embeddinggemma-2",
+  "package": "embeddinggemma-2-<digest>",
+  "host": "<chip>, macOS build <build>",
+  "compileMs": …,
+  "functions": [
+    {
+      "function": "s128",
+      "loadMs": …, "firstPredictMs": …,
+      "speedTokens": …, "msPerText": …, "textsPerSecond": …,
+      "planMs": …,
+      "neuralEngine": …, "gpu": …, "cpu": …, "unknown": …,
+      "cpuCore": ["<operator>", …],
+      "unknownCore": ["<operator>", …],
+      "placement": "on"
+    }
+  ],
+  "embedderPids": [ … ],
+  "note": "…"
+}
+```
+
+`loadMs` is the function's first load from the model this command
+compiled, the step the embedder takes after compiling the package on
+its first start; `planMs` is the plan read after that load. The
+compiled model the embedder keeps beside the package is neither read
+nor written. The four counts are the operations Core ML plans on each device and the
+ones it names no device for; `cpuCore` and `unknownCore`, absent when
+empty, list the convolution, matmul, linear and softmax operators among
+the CPU's and the unknown ones. `placement` is the verdict on the plan: `on` (more
+than 100 operations on the Neural Engine and no core operator on the
+CPU), `off`, or `unknown` when the answer depends on operations the
+plan names no device for. A plan that fails leaves `planError` and no
+`placement`; a load or prediction that fails leaves `error` and the
+timings it did not reach at `0`; the other functions are still
+measured. An embedder child running Core ML when the command starts
+may contend for the Neural Engine: its pid is listed in `embedderPids`
+with a `note`, and the times can be higher. The first `SIGINT` or
+`SIGTERM` stops the run and removes the temporary directory; a second
+one ends the process at once (exit `130` after `SIGINT`, `143` after
+`SIGTERM`), inside a Core ML call too and also when the shell started it
+with interrupts ignored, and can leave the directory behind. Once the
+directory is removed, while the result or the error is written (which a
+full pipe can hold up), the first one ends the process at once. Exit `1`
+with `unsupported: …` off an Apple Silicon Mac, in a virtual machine,
+without a Neural Engine and in a build without the local embedder; exit
+`1` too when the package is not installed or is not the pinned one,
+before anything is compiled, and when the result cannot be written to
+stdout (a reader that went away, say).
 
 ### Local discovery
 

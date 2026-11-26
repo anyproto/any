@@ -1,11 +1,11 @@
 ---
 title: CLI
-description: Every any command group with its flags — a thin HTTP client over the local server, one command per endpoint, JSON on stdout.
+description: Every any command group with its flags — a command that works on the server's data is one HTTP call to it, a few work without HTTP, JSON on stdout.
 order: 20
 ---
 # CLI
 
-`any` is one binary in two roles: `any run` starts the server, and every other subcommand is an HTTP call to it. The CLI never opens the SDK or touches storage, so anything you can do from the terminal you can do from `curl` — and vice versa.
+`any` is one binary in two roles: `any run` starts the server, and every subcommand that works on its data is an HTTP call to it. A few work without HTTP: `any init` and `any debug neural-engine` need no server, and `any stop` signals the server that holds the account's instance lock, failing when none does. A command that works on the server's data never opens the SDK or the store itself, so anything it does you can do from `curl`; not every endpoint has a command.
 
 ## Global flags and exit codes
 
@@ -47,7 +47,7 @@ any version                                                       # binary versi
 
 `--mode managed` starts a host-owned server: it never resolves an account from disk, the phrase arrives over `POST /v1/auth` on every launch, and it prints its control token as the second stdout line (`CONTROL_TOKEN <hex>`). `auth login --replace` (switch in place) and `auth logout` are managed-only and need that token (`ANY_CONTROL_TOKEN`). `any stop` sends no HTTP and takes no `--addr`: it finds the server by its held account lock and signals it — so it works against a wedged server and one on an ephemeral port; a standalone server refuses `POST /v1/shutdown`. Not available on Windows (no signal to send — stop the server with Ctrl-C).
 
-`any init` creates the data dir and an account wallet, printing the BIP-39 mnemonic to stderr once. With `--mnemonic` / `--mnemonic-stdin` it restores an existing account (same phrase, same account id, a fresh device key) — prefer stdin so the phrase stays out of shell history. `--index` defaults to 1 (the any derivation index; 0 restores an anytype-derived account); `--new` forces an additional account. `any run` never creates wallets: with no resolvable account it starts unauthorized and waits for `any auth login`. See [Accounts](../auth/accounts.html).
+`any init` creates the data dir and an account wallet, printing the BIP-39 mnemonic to stderr once; a mnemonic that cannot be written fails it (exit 1) with the wallet already created. With `--mnemonic` / `--mnemonic-stdin` it restores an existing account (same phrase, same account id, a fresh device key) — prefer stdin so the phrase stays out of shell history. `--index` defaults to 1 (the any derivation index; 0 restores an anytype-derived account); `--new` forces an additional account. `any run` never creates wallets: with no resolvable account it starts unauthorized and waits for `any auth login`. See [Accounts](../auth/accounts.html).
 
 ## Account, identities, devices
 
@@ -375,6 +375,7 @@ any push subscriptions
 any debug space  <spaceId>                          # per-peer headsync counters
 any debug object <spaceId> <objectId>               # tree + sync snapshot (walks the tree)
 any debug p2p                                       # direct-layer snapshot (LAN + global)
+any debug neural-engine [--function s128]           # no server: Core ML plan, load and predict times per function (Apple Silicon)
 any local-discovery [on|off]                        # mDNS announce+browse switch (works before auth)
 ```
 

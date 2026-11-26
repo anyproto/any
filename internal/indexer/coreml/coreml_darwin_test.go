@@ -6,12 +6,15 @@ import (
 	"encoding/json"
 	"math"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/ebitengine/purego/objc"
 )
 
 // referenceRow is one row of ANY_TEST_COREML_REFERENCE: a token sequence,
@@ -38,16 +41,6 @@ func testLengths(t *testing.T) []int {
 		out = append(out, n)
 	}
 	sort.Ints(out)
-	return out
-}
-
-// filler is a token sequence of n ids: BOS, one repeated word, EOS.
-func filler(n int) []int32 {
-	out := make([]int32, n)
-	for i := range out {
-		out[i] = 9259
-	}
-	out[0], out[n-1] = 2, 1
 	return out
 }
 
@@ -89,19 +82,27 @@ func TestPackage(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		defer os.RemoveAll(tmp) // left by a failed copy; gone after a rename
 		if err := os.Rename(tmp, compiled); err != nil {
-			// Core ML's temporary directory can sit on another volume:
-			// copy beside the destination, then move into place whole.
-			stage := compiled + ".copying"
-			_ = os.RemoveAll(stage)
-			if err := os.CopyFS(stage, os.DirFS(tmp)); err != nil {
-				_ = os.RemoveAll(stage)
-				t.Fatalf("copy the compiled model from %s: %v", tmp, err)
-			}
-			if err := os.Rename(stage, compiled); err != nil {
+			// Core ML's temporary directory can sit on another volume: copy
+			// into a stage of this test's own beside the destination, then
+			// move into place whole. A failed copy or rename leaves no stage.
+			stage, err := os.MkdirTemp(filepath.Dir(compiled), filepath.Base(compiled)+".copying-")
+			if err != nil {
 				t.Fatal(err)
 			}
-			_ = os.RemoveAll(tmp)
+			defer os.RemoveAll(stage)
+			if err := os.CopyFS(stage, os.DirFS(tmp)); err != nil {
+				t.Fatalf("copy the compiled model from %s: %v", tmp, err)
+			}
+			// A server that installed the model during the copy wins: its
+			// copy is the one used.
+			if err := os.Rename(stage, compiled); err != nil {
+				if st, statErr := os.Stat(compiled); statErr != nil || !st.IsDir() {
+					t.Fatal(err)
+				}
+				t.Logf("another process installed %s during the copy", compiled)
+			}
 		}
 		t.Logf("compiled in %s", time.Since(start).Round(time.Millisecond))
 	} else {
@@ -116,27 +117,21 @@ func TestPackage(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
-		t.Logf("%s plan in %s: %d neural engine, %d gpu, %d cpu operations, cpu core %v",
-			name, time.Since(start).Round(time.Millisecond), plan.NeuralEngine, plan.GPU, plan.CPU, plan.CPUCore)
-		if !plan.OnNeuralEngine() {
-			t.Errorf("%s: core planned off the neural engine", name)
+		t.Logf("%s plan in %s: %d neural engine, %d gpu, %d cpu operations, cpu core %v: %s",
+			name, time.Since(start).Round(time.Millisecond), plan.NeuralEngine, plan.GPU, plan.CPU, plan.CPUCore, plan.Verdict())
+		if plan.Verdict() != VerdictOn {
+			t.Errorf("%s: core not planned on the neural engine", name)
 		}
-		start = time.Now()
-		fn, err := Open(compiled, name, l, dim)
+		m, fn, err := Measure(t.Context(), compiled, name, l, dim, 50)
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
 		defer fn.Close()
-		loaded := time.Since(start)
-		out := make([]float32, dim)
-		start = time.Now()
-		if err := fn.Embed([]int32{2, 9259, 1}, out); err != nil {
-			t.Fatalf("%s: %v", name, err)
-		}
-		t.Logf("%s load %s, first predict %s, norm %.8f",
-			name, loaded.Round(time.Millisecond), time.Since(start).Round(time.Microsecond), vectorNorm(out))
-		if n := vectorNorm(out); math.Abs(n-1) > 1e-3 {
-			t.Errorf("%s: norm %f, want 1", name, n)
+		t.Logf("%s load %s, first predict %s, norm %.8f, %s per text of %d tokens (%.1f texts/s)",
+			name, m.Load.Round(time.Millisecond), m.FirstPredict.Round(time.Microsecond), m.Norm,
+			m.PerText.Round(time.Microsecond), m.Tokens, float64(time.Second)/float64(m.PerText))
+		if math.Abs(m.Norm-1) > 1e-3 {
+			t.Errorf("%s: norm %f, want 1", name, m.Norm)
 		}
 		fns[l] = fn
 	}
@@ -230,23 +225,6 @@ func TestPackage(t *testing.T) {
 		}
 	})
 
-	t.Run("speed", func(t *testing.T) {
-		for _, l := range lengths {
-			fn := fns[l]
-			tokens := filler(l * 3 / 4)
-			out := make([]float32, dim)
-			const rounds = 50
-			start := time.Now()
-			for range rounds {
-				if err := fn.Embed(tokens, out); err != nil {
-					t.Fatalf("s%d: %v", l, err)
-				}
-			}
-			per := time.Since(start) / rounds
-			t.Logf("s%d: %s per text of %d tokens (%.1f texts/s)", l, per.Round(time.Microsecond), len(tokens), float64(time.Second)/float64(per))
-		}
-	})
-
 	// The embed child predicts on one function while another is
 	// planned and loaded.
 	t.Run("load while predicting", func(t *testing.T) {
@@ -324,4 +302,27 @@ func TestPackage(t *testing.T) {
 			t.Error("opened a model that is not there")
 		}
 	})
+}
+
+// An NSError is named by its domain and code alone: its description can
+// carry a file URL, and the name is logged.
+func TestDescribeNamesNoPath(t *testing.T) {
+	if err := load(); err != nil {
+		t.Skip(err)
+	}
+	const path = "/private/var/secret-root/model.mlmodelc/model.mil"
+	var got string
+	_ = scope(func() error {
+		info := classSend(clsMutableDictionary, "dictionary")
+		send(info, "setObject:forKey:", nsString("could not read "+path), nsString("NSLocalizedDescription"))
+		nserr := classSend(objc.GetClass("NSError"), "errorWithDomain:code:userInfo:", nsString("com.example.test"), 42, info)
+		got = describe(nserr)
+		return nil
+	})
+	if got != "com.example.test error 42" {
+		t.Fatalf("describe = %q", got)
+	}
+	if describe(0) != "no error reported" {
+		t.Fatalf("describe(nil) = %q", describe(0))
+	}
 }

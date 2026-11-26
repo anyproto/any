@@ -213,11 +213,14 @@ late heartbeat can resurrect a finished row. Work stopped mid-pass
   While it runs the row has `embedding`:
   - `phase`: `waiting` while `index.embedStartDelay` runs with texts
     pending; `preparing` while the drain waits for the Neural Engine's
-    first function, the worker's start and model load included;
-    `embedding` otherwise.
+    package to download and for its
+    first function, the worker's start and model load included, while
+    every text still pending waits for a function that is loading, and
+    from there, or from a pass started over on such texts, until a
+    vector comes; `embedding` otherwise.
   - `backends`: the runtimes that embedded the last batch the embedder
-    returned, whether or not all of it landed. `ane` is Core ML on the
-    Neural Engine; `gpu` is llama.cpp in a child that loaded the model
+    returned, whether or not all of it landed. `ane` is Core ML
+    (`13-index.md` § Neural Engine); `gpu` is llama.cpp in a child that loaded the model
     on a GPU device; `cpu` is llama.cpp with
     `index.local.gpuLayers: 0` or with no device to load the model on;
     `llama` is llama.cpp in a child that did not report its hardware;
@@ -233,9 +236,10 @@ late heartbeat can resurrect a finished row. Work stopped mid-pass
     With a Neural Engine path it is the cause of the frame's last text
     that missed it: `package_not_ready` (the Core ML package is not on
     disk or not compiled yet), `function_loading`, `too_long`,
-    `ane_failed`, `ane_off` (the path is off for this run), or
+    `ane_failed` (a prediction failed, or every function that holds the
+    text is not used: it failed to load or kept failing), `ane_off` (the path is off for this run), or
     `readiness_timeout` (a function still loading after bulk work gave
-    up waiting). Otherwise it is the GPU's: `gpu_failed` (offload
+    up waiting for it). Otherwise it is the GPU's: `gpu_failed` (offload
     demoted after a child died) or `gpu_disabled`
     (`index.local.gpuLayers: 0`). It does not describe every text of
     the batch.

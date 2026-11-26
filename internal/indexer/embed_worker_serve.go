@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"sync/atomic"
+	"time"
 
 	"github.com/anyproto/any/internal/config"
 )
@@ -70,35 +71,18 @@ func RunEmbedWorker(ctx context.Context, cfg EmbedWorkerConfig, in io.Reader, ou
 	if cfg.GpuLayers >= 0 {
 		local.GpuLayers = &cfg.GpuLayers
 	}
+	closed := make(chan struct{}) // closes after the Local's Close
+	defer close(closed)
 	l, err := NewLocal(local, "", "", nil)
 	if err != nil {
 		return err
 	}
 	defer l.Close()
 
-	// Dim loads the model (ModelPath is set, so this is never the
-	// default-model shortcut) — the handshake means "ready to decode".
-	dim, err := l.Dim(ctx)
-	if err != nil {
-		return err
-	}
-
+	// Reading runs on its own goroutine, from before the model loads, so
+	// the end of the stream (the parent closing stdin, or dying) is noticed
+	// in a load or a decode, neither of which can be interrupted.
 	r := bufio.NewReaderSize(in, 64<<10)
-	w := bufio.NewWriter(out)
-	hw := l.Hardware()
-	if err := writeFrame(w, workerResp{Op: workerOpReady, Dim: dim, Hardware: &hw}, nil); err != nil {
-		return err
-	}
-	// After the handshake, so a Core ML crash is a death of a started
-	// child, which the server demotes. The functions load in the
-	// background while llama.cpp serves.
-	l.startNeuralEngine(cfg.CoreMLDir)
-
-	// Reading runs on its own goroutine so the end of the stream — the
-	// parent closing stdin, or dying — is noticed even mid-decode. A
-	// decode cannot be interrupted, so a wedged child that waited for
-	// the next request to spot the EOF would outlive its parent holding
-	// the model; it exits instead.
 	var decoding atomic.Bool
 	reqs := make(chan workerReq)
 	readErr := make(chan error, 1)
@@ -113,11 +97,31 @@ func RunEmbedWorker(ctx context.Context, cfg EmbedWorkerConfig, in io.Reader, ou
 				if decoding.Load() {
 					os.Exit(0)
 				}
+				// The parent may be gone, and with it the kill that ends a
+				// model load or a cleanup wedged in native code.
+				go exitUnless(closed, workerOrphanGrace)
 				return
 			}
 			reqs <- req
 		}
 	}()
+
+	// Dim loads the model (ModelPath is set, so this is never the
+	// default-model shortcut) — the handshake means "ready to decode".
+	dim, err := l.Dim(ctx)
+	if err != nil {
+		return err
+	}
+
+	w := bufio.NewWriter(out)
+	hw := l.Hardware()
+	if err := writeFrame(w, workerResp{Op: workerOpReady, Dim: dim, Hardware: &hw}, nil); err != nil {
+		return err
+	}
+	// After the handshake, so a Core ML crash is a death of a started
+	// child, which the server demotes. The functions load in the
+	// background while llama.cpp serves.
+	l.startNeuralEngine(cfg.CoreMLDir)
 
 	for req := range reqs {
 		switch req.Op {
@@ -148,10 +152,28 @@ func RunEmbedWorker(ctx context.Context, cfg EmbedWorkerConfig, in io.Reader, ou
 	}
 }
 
+// exitUnless ends the process unless done closes within d.
+func exitUnless(done <-chan struct{}, d time.Duration) {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-done:
+	case <-t.C:
+		os.Exit(1)
+	}
+}
+
+// frameEmbedder is what serveEmbed needs of the Local.
+type frameEmbedder interface {
+	EmbedQuery(ctx context.Context, text string) ([]float32, error)
+	embedDocs(ctx context.Context, titles, texts []string, bulk bool) ([][]float32, error)
+	lastRoutes() workerRoutes
+}
+
 // serveEmbed answers one embed request. An embedding failure is an
 // error FRAME, not a transport error: the child stays usable and the
 // parent keeps it (only a dead or desynchronized child is respawned).
-func serveEmbed(ctx context.Context, l *Local, w *bufio.Writer, req workerReq) error {
+func serveEmbed(ctx context.Context, l frameEmbedder, w *bufio.Writer, req workerReq) error {
 	var (
 		vecs   [][]float32
 		routes *workerRoutes
@@ -168,9 +190,10 @@ func serveEmbed(ctx context.Context, l *Local, w *bufio.Writer, req workerReq) e
 			vecs = [][]float32{v}
 		}
 	default:
-		if vecs, err = l.EmbedTitledDocs(ctx, req.Titles, req.Texts); err == nil {
+		if vecs, err = l.embedDocs(ctx, req.Titles, req.Texts, req.Bulk); err == nil {
 			r := l.lastRoutes()
 			routes = &r
+			vecs = packVectors(vecs)
 		}
 	}
 	if err != nil {

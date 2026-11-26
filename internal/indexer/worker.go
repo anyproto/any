@@ -3,12 +3,15 @@ package indexer
 import (
 	"context"
 	"errors"
+	"fmt"
+	"hash/maphash"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/anyproto/any-sync/app/logger"
 	"go.uber.org/zap"
 
 	"github.com/anyproto/any-store/v2/anyenc"
@@ -39,8 +42,10 @@ type spaceWorker struct {
 	// cursor-driven, the next signal or boot align catches up.
 	dirty chan struct{}
 	// embedCh nudges the embed loop after an advance landed pending
-	// docs; the PendingEvery ticker is the retry/catch-up path.
+	// docs, which fresh names; the PendingEvery ticker is the
+	// retry/catch-up path.
 	embedCh chan struct{}
+	fresh   freshDocs
 
 	ctx       context.Context
 	cancel    context.CancelFunc
@@ -281,9 +286,69 @@ func (w *spaceWorker) runAdvance() {
 	}
 }
 
+// freshDocsMax is how many newly pending docs a worker names for its
+// drain between two looks of it.
+const freshDocsMax = 1024
+
+// freshDocs names the docs that went pending since the embed drain last
+// took them: a drain that has left texts behind embeds these out of
+// turn, without sending the ones it left again. over: there were more
+// than it names, or docs nobody named.
+type freshDocs struct {
+	mu   sync.Mutex
+	ids  []string
+	over bool
+}
+
+// add names docs that went pending; none named = some did, unnamed.
+func (f *freshDocs) add(ids []string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(ids) == 0 || len(f.ids)+len(ids) > freshDocsMax {
+		f.ids, f.over = nil, true
+		return
+	}
+	f.ids = append(f.ids, ids...)
+}
+
+// take removes and returns up to n of the docs, and whether there were
+// more than are named since the last take or reset.
+func (f *freshDocs) take(n int) (ids []string, over bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n = min(n, len(f.ids))
+	ids, f.ids = f.ids[:n:n], f.ids[n:]
+	over, f.over = f.over, false
+	return ids, over
+}
+
+// any reports whether docs are named.
+func (f *freshDocs) any() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.ids) > 0
+}
+
+func (f *freshDocs) reset() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ids, f.over = nil, false
+}
+
+// nudgeEmbed tells the embed loop that docs went pending: the ones
+// named, or some nobody listed.
+func (w *spaceWorker) nudgeEmbed(ids []string) {
+	w.fresh.add(ids)
+	select {
+	case w.embedCh <- struct{}{}:
+	default:
+	}
+}
+
 // embedLoop drains pending docs on nudges from advance and on the
 // periodic tick (which also retries after embedder failures). A drain
-// that finds work before Options.EmbedStartDelay has passed waits for it.
+// that finds work before Options.EmbedStartDelay has passed waits for
+// it, and has the embedder prepare meanwhile.
 func (w *spaceWorker) embedLoop() {
 	defer w.ix.wg.Done()
 	drain := func() {
@@ -378,7 +443,7 @@ func (w *spaceWorker) advancePages(ctx context.Context, onWork func(), progress 
 			}
 		}
 
-		touched, err := w.ix.store.ApplyPage(ctx, spaceId, page.ups, page.dels, page.prefixDels, page.textPrefixDels, &page.links)
+		touched, marked, err := w.ix.store.ApplyPageMarked(ctx, spaceId, page.ups, page.dels, page.prefixDels, page.textPrefixDels, &page.links)
 		if err != nil {
 			return err
 		}
@@ -398,25 +463,13 @@ func (w *spaceWorker) advancePages(ctx context.Context, onWork func(), progress 
 			w.linksStamped = true
 		}
 		progress(len(changes))
-		if w.ix.HasEmbedder() && hasIndexableText(page.ups) {
-			select {
-			case w.embedCh <- struct{}{}:
-			default:
-			}
+		if w.ix.HasEmbedder() && len(marked) > 0 {
+			w.nudgeEmbed(marked)
 		}
 		if len(changes) < w.ix.opts.BatchLimit {
 			return nil
 		}
 	}
-}
-
-func hasIndexableText(ups []DocUpsert) bool {
-	for _, up := range ups {
-		if up.Vector == nil && up.Entry.Data != "" {
-			return true
-		}
-	}
-	return false
 }
 
 // pageOps accumulates one advance page: upserts, record-level deletes
@@ -831,16 +884,9 @@ func (w *spaceWorker) drain(ctx context.Context, delay bool) error {
 	return err
 }
 
-// drainRounds embeds and lands pending docs until the queue is empty.
-// Each round pulls up to EmbedConcurrency batches and embeds them
-// concurrently: an online embedder parallelizes across HTTP requests
-// (the throughput win), while the local child serves one frame at a
-// time — so concurrency is safe regardless of backend. SetVectors /
-// EnsureVectorIndex stay serial. The vector index is created lazily after
-// the first batch lands. progress is called with (0, remaining) when a
-// round found work (before embedding; remaining = pending count, -1
-// when the count read failed) and with (landed, -1) after each batch
-// that landed vectors.
+// drainRounds embeds and lands pending docs until the queue is empty,
+// past the texts the embedder defers (docs/13-index.md § Embed loop).
+// progress gets (0, pending or -1) per round, (landed, -1) per batch.
 func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func(landed, remaining int), status func(EmbedStatus)) error {
 	spaceId := w.sp.Id()
 	batch := w.ix.opts.EmbedBatch
@@ -857,11 +903,86 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 	}
 	// An embedder that readies a faster runtime in the background gets
 	// to finish that before every round that has work (BulkPreparer).
+	preparer, _ := emb.(BulkPreparer)
+	prepared, how := false, "" // the last prepare had to wait; how it went
 	prepare := func() error {
-		if p, ok := emb.(BulkPreparer); ok {
-			p.PrepareBulk(ctx, func() { report(EmbedStatus{Phase: EmbedPhasePreparing}) })
+		prepared, how = false, ""
+		if preparer != nil {
+			how = preparer.PrepareBulk(ctx, func() {
+				prepared = true
+				report(EmbedStatus{Phase: EmbedPhasePreparing})
+			})
 		}
 		return ctx.Err()
+	}
+	// left counts the docs this pass leaves for later; after is the last
+	// doc it read, which it then pages on from: no write moves an id.
+	// wake is the embedder's word that the docs left may embed now.
+	left, after := 0, ""
+	var wake <-chan struct{}
+	deferrer, _ := emb.(BulkDeferrer)
+	// passFrom is when the pass began: the docs it leaves are sent again
+	// on the embedder's word, or a period after that. quiet: the row is
+	// not embedding until a vector comes, after a wait or docs left behind.
+	var passFrom time.Time
+	quiet := false
+	// behind: docs went pending that nobody named; they wait for the next
+	// pass. peeked: the last page was of newly pending docs. ended: the
+	// cursor reached the end, and only named docs are read until that pass.
+	behind, peeked, ended := false, false, false
+	// deferred are the inputs this pass left without a vector, by doc:
+	// none is sent again in it while its text and title stand, whichever
+	// read finds it. stuck counts the pages in a row, with nothing left
+	// behind, of which a doc took no vector.
+	deferred := deferredInputs{seed: maphash.MakeSeed(), by: map[string]uint64{}}
+	stuck := 0
+	var passErr error // a vector the embedder neither gave nor deferred
+	startPass := func() {
+		// Over docs left behind: nothing is embedding until one of them does.
+		if quiet = left > 0; quiet {
+			report(EmbedStatus{Phase: EmbedPhasePreparing})
+		}
+		left, after, behind, peeked, ended, passErr = 0, "", false, false, false, nil
+		clear(deferred.by)
+		passFrom = time.Now()
+		if deferrer != nil {
+			wake = deferrer.DeferredWake()
+		}
+	}
+	startPass()
+	// endPass runs when a pass reached the end of the queue. done: the
+	// queue is drained. Otherwise the next pass is due and has begun, or
+	// named docs wait, or it has waited for either or the embedder's word.
+	endPass := func() (done bool, err error) {
+		if passErr != nil {
+			return false, passErr
+		}
+		if left == 0 {
+			return true, nil
+		}
+		ended = true
+		// The period first: named docs that keep coming do not put it off.
+		if time.Since(passFrom) >= w.ix.opts.PendingEvery {
+			startPass()
+			return false, nil
+		}
+		if w.fresh.any() { // named since the last look: no wait
+			return false, nil
+		}
+		quiet = true
+		report(EmbedStatus{Phase: EmbedPhasePreparing})
+		timer := time.NewTimer(time.Until(passFrom.Add(w.ix.opts.PendingEvery)))
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-w.embedCh: // new texts: read by name, the cursor stays
+		case <-wake:
+			startPass()
+		case <-timer.C:
+			startPass()
+		}
+		return false, nil
 	}
 	first := true
 	for {
@@ -885,23 +1006,101 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 				report(EmbedStatus{Phase: EmbedPhaseEmbedding})
 			}
 			progress(0, n) // the started frame carries the phase
+			// The drain sends nothing under its waits: the embedder keeps
+			// what it loaded for it until the drain returns.
+			if h, ok := emb.(BulkHolder); ok {
+				defer h.HoldBulk()()
+			}
 			if wait > 0 {
+				// The embedder readies its runtime under the delay; the
+				// prepare below then waits only for what is left.
+				if preparer != nil {
+					early, stop := context.WithCancel(ctx)
+					done := make(chan struct{})
+					go func() {
+						defer close(done)
+						preparer.PrepareBulk(early, nil)
+					}()
+					defer func() {
+						stop()
+						<-done
+					}()
+				}
 				select {
 				case <-ctx.Done():
 					return ctx.Err()
 				case <-time.After(wait):
 				}
 			}
+			asked := time.Now()
 			if err := prepare(); err != nil {
 				return err
 			}
+			if wait > 0 || preparer != nil {
+				w.ix.logBulkOpened(wait > 0, prepared, how, time.Since(asked))
+			}
+			startPass() // what the embedder said while it prepared is old
 		}
-		ids, texts, err := w.ix.store.Pending(ctx, spaceId, batch*conc)
-		if err != nil {
-			return err
+		// With texts left behind, the embedder's word starts the pass over,
+		// and so do docs nobody named, once a period. Named docs get a page
+		// of their own between two from the cursor (docs/13-index.md § Embed loop).
+		var ids, texts []string
+		peek, short := false, false
+		if left > 0 {
+			select {
+			case <-wake:
+				startPass()
+			default:
+			}
 		}
-		if len(ids) == 0 {
-			return nil
+		// Past its end a pass reads named docs alone, which do not put the
+		// period off.
+		if left > 0 && ended && time.Since(passFrom) >= w.ix.opts.PendingEvery {
+			startPass()
+		}
+		// Taken only on the turn that embeds them: they keep their order.
+		if left > 0 && (!peeked || ended) {
+			fresh, over := w.fresh.take(batch * conc)
+			behind = behind || over
+			switch {
+			case behind && time.Since(passFrom) >= w.ix.opts.PendingEvery:
+				startPass()
+			case len(fresh) > 0:
+				var err error
+				if ids, texts, err = w.ix.store.PendingByIds(ctx, spaceId, fresh); err != nil {
+					return err
+				}
+				peek = len(ids) > 0
+			}
+		}
+		peeked = peek
+		if !peek && ended {
+			// The cursor has nothing more to read in this pass.
+			if done, err := endPass(); done || err != nil {
+				return err
+			}
+			continue
+		}
+		if !peek {
+			// With nothing left behind every page is the head of the queue,
+			// and a doc that went pending before this read is in it or
+			// behind it. A head that took no vector twice is read past.
+			from := after
+			if left == 0 && stuck < 2 {
+				from = ""
+				w.fresh.reset()
+			}
+			var err error
+			if ids, texts, err = w.ix.store.PendingAfter(ctx, spaceId, from, batch*conc); err != nil {
+				return err
+			}
+			if len(ids) == 0 {
+				if done, err := endPass(); done || err != nil {
+					return err
+				}
+				continue
+			}
+			after, short = ids[len(ids)-1], len(ids) < batch*conc
 		}
 		if !first {
 			if err := prepare(); err != nil {
@@ -909,13 +1108,23 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 			}
 		}
 		first = false
-		// After a wait; a round that follows a batch keeps its runtimes.
-		if last == nil || last.Phase != EmbedPhaseEmbedding {
-			report(EmbedStatus{Phase: EmbedPhaseEmbedding})
-		}
+		// After the wait: the names the texts embed under are current.
 		titles, err := w.ix.store.DocTitles(ctx, spaceId, ids)
 		if err != nil {
 			return err
+		}
+		if ids, texts, titles = deferred.without(ids, texts, titles); len(ids) == 0 {
+			if !peek && short {
+				if done, err := endPass(); done || err != nil {
+					return err
+				}
+			}
+			continue
+		}
+		// After a wait; a round that follows a batch keeps its runtimes. A
+		// pass over texts left behind is embedding once one of them embeds.
+		if !quiet && !peek && (last == nil || last.Phase != EmbedPhaseEmbedding) {
+			report(EmbedStatus{Phase: EmbedPhaseEmbedding})
 		}
 		// Counted after the waits: what arrived meanwhile is in the total.
 		remaining, cerr := w.ix.store.PendingCount(ctx, spaceId)
@@ -932,6 +1141,8 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 			vecs   [][]float32
 			route  EmbedRoute
 			err    error
+			// missing: vectors the embedder neither gave nor deferred.
+			missing error
 		}
 		var chunks []*chunk
 		for off := 0; off < len(ids); off += batch {
@@ -960,10 +1171,24 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 					}
 					c.route.Backends = embedBackends(emb)
 				}
+				// Only texts a route declares deferred may lack a vector. Others
+				// stay pending too and end the pass in an error; the rest lands.
+				if missing, err := declaredVectors(c.vecs, c.route.Deferred); err != nil {
+					c.route.Deferred, c.missing = missing, err
+				}
 			}(c)
 		}
 		wg.Wait()
 
+		// What the embedder left without a vector stays pending.
+		for _, c := range chunks {
+			deferred.note(c.ids, c.texts, c.titles, c.vecs)
+			c.ids, c.texts, c.titles, c.vecs = embeddedDocs(c.ids, c.texts, c.titles, c.vecs)
+			left += c.route.Deferred
+			if c.missing != nil && passErr == nil {
+				passErr = c.missing
+			}
+		}
 		// First embedded vector teaches the store its dimension (no
 		// boot-time probe — an embedder down at boot just starts here).
 		for _, c := range chunks {
@@ -978,10 +1203,11 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 		// prefix (Embedder.EmbedDocs); the rest of its docs stay pending
 		// (the ticker retries) and we surface the error after.
 		var firstErr error
-		landed := false
+		took, skipped := 0, false
 		for _, c := range chunks {
 			if n := len(c.vecs); n > 0 {
 				// What the embedder computed, whether or not it lands.
+				quiet = false
 				report(EmbedStatus{Phase: EmbedPhaseEmbedding, Backends: c.route.Backends, Reason: c.route.Reason})
 				var titles []string
 				if c.titles != nil {
@@ -989,20 +1215,30 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 				}
 				// A doc rewritten, renamed or deleted while it embedded
 				// takes no vector and is not counted.
-				took, err := w.ix.store.SetTitledVectors(ctx, spaceId, c.ids[:n], c.texts[:n], titles, c.vecs)
+				got, err := w.ix.store.SetTitledVectors(ctx, spaceId, c.ids[:n], c.texts[:n], titles, c.vecs)
 				if err != nil {
 					return err
 				}
-				if took > 0 {
-					landed = true
-					progress(took, -1)
+				if got > 0 {
+					took += got
+					progress(got, -1)
 				}
+				// One that changed under its embedding stays pending behind
+				// the cursor: it is read again with the newly pending docs,
+				// or with the head when nothing was left behind.
+				if got < n && left > 0 {
+					w.fresh.add(c.ids[:n])
+				}
+				skipped = skipped || got < n
+			} else if c.err == nil && c.missing == nil && c.route.Deferred > 0 && last != nil && last.Phase == EmbedPhaseEmbedding {
+				// A batch left pending whole: no runtime embedded it.
+				report(EmbedStatus{Phase: EmbedPhaseEmbedding})
 			}
 			if c.err != nil && firstErr == nil {
 				firstErr = c.err
 			}
 		}
-		if landed {
+		if took > 0 {
 			if _, err := w.ix.store.EnsureVectorIndex(ctx, spaceId); err != nil {
 				return err
 			}
@@ -1012,10 +1248,167 @@ func (w *spaceWorker) drainRounds(ctx context.Context, delay bool, progress func
 			// stay pending), FTS unaffected; the ticker retries.
 			return firstErr
 		}
-		if len(ids) < batch*conc {
-			return nil // last page
+		if !peek {
+			if left == 0 && skipped {
+				stuck++
+			} else {
+				stuck = 0
+			}
+		}
+		if !peek && short { // last page
+			// Its end is not the queue's when a doc of it took no vector:
+			// the head is read once more.
+			if stuck == 1 {
+				continue
+			}
+			if done, err := endPass(); done || err != nil {
+				return err
+			}
 		}
 	}
+}
+
+// deferredInputsMax bounds what a pass remembers of the docs it left
+// deferred; past it a doc can be sent twice in one pass.
+const deferredInputsMax = 1 << 16
+
+// deferredInputs are the docs a pass left without a vector, each with a
+// hash of the title and text it was sent with.
+type deferredInputs struct {
+	seed maphash.Seed
+	by   map[string]uint64
+}
+
+func (d *deferredInputs) hash(title, text string) uint64 {
+	var h maphash.Hash
+	h.SetSeed(d.seed)
+	_, _ = h.WriteString(title)
+	_ = h.WriteByte(0)
+	_, _ = h.WriteString(text)
+	return h.Sum64()
+}
+
+// note takes a batch as it came back: a doc without a vector is
+// remembered with its input, one with a vector forgotten. titles may be
+// nil, vecs a prefix of the batch.
+func (d *deferredInputs) note(ids, texts, titles []string, vecs [][]float32) {
+	for i, v := range vecs {
+		title := ""
+		if titles != nil {
+			title = titles[i]
+		}
+		switch {
+		case len(v) > 0:
+			delete(d.by, ids[i])
+		case len(d.by) < deferredInputsMax:
+			d.by[ids[i]] = d.hash(title, texts[i])
+		}
+	}
+}
+
+// without drops from a page the docs whose input is the one remembered.
+func (d *deferredInputs) without(ids, texts, titles []string) ([]string, []string, []string) {
+	if len(d.by) == 0 {
+		return ids, texts, titles
+	}
+	keptIds, keptTexts, keptTitles := ids[:0:0], texts[:0:0], titles[:0:0]
+	for i, id := range ids {
+		title := ""
+		if titles != nil {
+			title = titles[i]
+		}
+		if sum, ok := d.by[id]; ok && sum == d.hash(title, texts[i]) {
+			continue
+		}
+		keptIds, keptTexts = append(keptIds, id), append(keptTexts, texts[i])
+		if titles != nil {
+			keptTitles = append(keptTitles, title)
+		}
+	}
+	return keptIds, keptTexts, keptTitles
+}
+
+// logBulkOpened says, once per run, when bulk embedding got past its
+// waits, whether the start delay or the embedder was the later one, and
+// how the embedder's preparation went (Bulk*; "" = it has none).
+func (ix *Indexer) logBulkOpened(delayed, prepared bool, how string, preparedFor time.Duration) {
+	ix.bulkOpened.Do(func() {
+		fields := bulkOpenedFields(delayed, prepared, how, preparedFor)
+		fields = append(fields, zap.Duration("startDelay", ix.opts.EmbedStartDelay))
+		if !ix.embedFrom.IsZero() {
+			fields = append(fields, zap.Duration("sinceStart",
+				time.Since(ix.embedFrom.Add(-ix.opts.EmbedStartDelay)).Round(time.Millisecond)))
+		}
+		// Not ix.lg: an Indexer built without New has none.
+		logger.NewNamed("indexer").Info("bulk embedding opened", fields...)
+	})
+}
+
+func bulkOpenedFields(delayed, prepared bool, how string, preparedFor time.Duration) []zap.Field {
+	by := "no_wait"
+	switch {
+	case prepared:
+		by = "embedder"
+	case delayed:
+		by = "start_delay"
+	}
+	fields := []zap.Field{zap.String("openedBy", by)}
+	if how != "" {
+		fields = append(fields, zap.String("embedder", how))
+	}
+	if prepared {
+		fields = append(fields, zap.Duration("embedderWaitPastDelay", preparedFor.Round(time.Millisecond)))
+	}
+	return fields
+}
+
+// declaredVectors checks that a batch lacks a vector for exactly the
+// deferred texts its route declares, and counts the ones it lacks.
+func declaredVectors(vecs [][]float32, deferred int) (missing int, err error) {
+	for _, v := range vecs {
+		if len(v) == 0 {
+			missing++
+		}
+	}
+	if missing != deferred {
+		err = fmt.Errorf("indexer: the embedder declared %d of %d texts deferred and returned no vector for %d", deferred, len(vecs), missing)
+	}
+	return missing, err
+}
+
+// embeddedDocs drops the docs of a batch whose vector is nil: the texts
+// the embedder deferred. vecs may be a prefix of the batch (a failed
+// one); the result's vectors pair with the head of its ids.
+func embeddedDocs(ids, texts, titles []string, vecs [][]float32) ([]string, []string, []string, [][]float32) {
+	deferred := false
+	for _, v := range vecs {
+		if len(v) == 0 {
+			deferred = true
+			break
+		}
+	}
+	if !deferred {
+		return ids, texts, titles, vecs
+	}
+	var (
+		outIds, outTexts, outTitles []string
+		outVecs                     [][]float32
+	)
+	for i, v := range vecs {
+		if len(v) == 0 {
+			continue
+		}
+		outIds = append(outIds, ids[i])
+		outTexts = append(outTexts, texts[i])
+		if titles != nil {
+			outTitles = append(outTitles, titles[i])
+		}
+		outVecs = append(outVecs, v)
+	}
+	if titles != nil && outTitles == nil {
+		outTitles = []string{}
+	}
+	return outIds, outTexts, outTitles, outVecs
 }
 
 // openIndex opens the space's collection, ensuring its indexes and
@@ -1049,10 +1442,7 @@ func (w *spaceWorker) backfillPending(ctx context.Context) {
 	n, err := w.ix.store.BackfillPending(ctx, spaceId)
 	if n > 0 {
 		// Whatever got marked can drain, even after a failure below.
-		select {
-		case w.embedCh <- struct{}{}:
-		default:
-		}
+		w.nudgeEmbed(nil)
 	}
 	if err != nil {
 		if ctx.Err() == nil {

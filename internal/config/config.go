@@ -280,11 +280,9 @@ type Index struct {
 	// safe but pointless). See docs/13-index.md.
 	EmbedBatch       int `yaml:"embedBatch"`
 	EmbedConcurrency int `yaml:"embedConcurrency"`
-	// EmbedStartDelay is how long after boot the local embedder's embed
-	// loops start draining, leaving the first minutes to sync, the
-	// full-text pass and the client's startup. A duration; "0" starts at
-	// once. Searches embed their query regardless, and an HTTP embedder
-	// (openai, ollama, auto with a key) is not delayed. Default 2m.
+	// EmbedStartDelay is the least time after boot before the local
+	// embedder embeds a document ("0" = none; default 2m). Searches and
+	// HTTP embedders are not delayed (docs/13-index.md § Embed loop).
 	EmbedStartDelay string      `yaml:"embedStartDelay"`
 	Ollama          IndexOllama `yaml:"ollama"`
 	OpenAI          IndexOpenAI `yaml:"openai"`

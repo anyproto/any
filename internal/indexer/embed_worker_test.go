@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"runtime/pprof"
 	"strconv"
 	"strings"
 	"sync"
@@ -97,7 +98,7 @@ func runEmbedHelper(mode string) int {
 	// ANY_EMBED_WORKER_ROUTES="<ane>,<llama>,<miss>" rides every document
 	// frame, as the real child's count of its texts per runtime.
 	var routes *workerRoutes
-	if parts := strings.Split(os.Getenv("ANY_EMBED_WORKER_ROUTES"), ","); len(parts) == 3 {
+	if parts := strings.Split(os.Getenv("ANY_EMBED_WORKER_ROUTES"), ","); len(parts) >= 3 {
 		ane, _ := strconv.Atoi(parts[0])
 		llm, _ := strconv.Atoi(parts[1])
 		routes = &workerRoutes{ANE: ane, Llama: llm, Miss: parts[2]}
@@ -109,13 +110,42 @@ func runEmbedHelper(mode string) int {
 		aneStderrLog(aneOffStatus + "llama.cpp embeds everything: no neural engine")
 	case "ready": // the first function loads after the delay
 		aneStderrLog("starting")
+		aneStderrLog("s128 loading")
 		go func() {
 			time.Sleep(delay)
 			aneStderrLog("s128 ready (plan 1ms, load 1ms, 10 operations on the neural engine, 0 on the cpu)")
 		}()
+	case "loaded": // the first function is loaded and nothing else is under way
+		aneStderrLog("starting")
+		aneStderrLog("s128 loading")
+		aneStderrLog("s128 ready (open 1ms, first predict 1ms, validate 1ms; asked for 2ms ago)")
+	case "loading": // inside the first function's load
+		aneStderrLog("starting")
+		aneStderrLog("s128 loading")
+	case "earliercached": // an earlier release's child, its first function loaded from a cached compile
+		aneStderrLog("starting")
+		aneStderrLog("s128 ready (plan 2.1s, load 1.2s, 6000 operations on the neural engine, 14 on the cpu)")
+	case "earliercompiled": // an earlier release's child inside its first load, after a compile
+		aneStderrLog("starting")
+		aneStderrLog("package compiled in 40s")
+	case "offloading": // the path is off with a load still open
+		aneStderrLog("starting")
+		aneStderrLog("s128 loading")
+		aneStderrLog(aneOffStatus + "llama.cpp embeds everything: no function can be used")
+	case "failedlarger": // a larger function is not used; the first one loads after the delay
+		aneStderrLog("starting")
+		aneStderrLog("s512 not used: coreml: load s512: test error 1")
+		go func() {
+			time.Sleep(delay)
+			aneStderrLog("s128 ready (open 1ms, first predict 1ms, validate 1ms; asked for 2ms ago)")
+		}()
+	case "offthenfail": // the path goes off, then a prediction in flight fails
+		aneStderrLog("starting")
+		aneStderrLog(aneOffStatus + "llama.cpp embeds everything: no function can be used")
+		aneStderrLog("s128 failed: late")
 	case "failed": // the first function does not load
 		aneStderrLog("starting")
-		aneStderrLog("s128 not used: core ml plans it off the neural engine")
+		aneStderrLog("s128 not used: coreml: load s128: test error 1")
 	default: // a child that began using Core ML
 		aneStderrLog("starting")
 	}
@@ -168,22 +198,45 @@ func runEmbedHelper(mode string) int {
 		// Deterministic vectors: v[j] = len(text)*10 + j, except the last
 		// component, which carries the frame's text count so a test can
 		// see how the parent split a batch.
-		vecs := make([][]float32, len(req.Texts))
+		// ANY_EMBED_WORKER_DEFER=<prefix>: a bulk frame has no vector for
+		// a text that starts with it, like a text whose function loads.
+		deferPrefix := os.Getenv("ANY_EMBED_WORKER_DEFER")
+		var deferred []int
+		vecs := make([][]float32, 0, len(req.Texts))
 		for i, txt := range req.Texts {
+			if req.Bulk && deferPrefix != "" && strings.HasPrefix(txt, deferPrefix) {
+				deferred = append(deferred, i)
+				continue
+			}
 			v := make([]float32, helperDim)
 			for j := range v {
 				v[j] = float32(len(txt)*10 + j)
 			}
 			v[helperDim-1] = float32(len(req.Texts))
-			vecs[i] = v
+			vecs = append(vecs, v)
 		}
 		bin, dim, err := encodeVectors(vecs)
 		if err != nil {
 			return 1
 		}
 		resp := workerResp{Op: workerOpVectors, N: len(vecs), Dim: dim}
+		// ANY_EMBED_WORKER_MISS=<reason>: llama.cpp embedded every vector
+		// of a document frame, for that reason.
+		if miss := os.Getenv("ANY_EMBED_WORKER_MISS"); miss != "" && len(vecs) > 0 {
+			routes = &workerRoutes{Llama: len(vecs), Miss: miss, Misses: map[string]int{miss: len(vecs)}}
+		} else if miss != "" {
+			routes = nil
+		}
 		if req.Role != workerRoleQuery {
 			resp.Routes = routes
+			if len(deferred) > 0 {
+				rt := workerRoutes{}
+				if routes != nil {
+					rt = *routes
+				}
+				rt.Deferred = deferred
+				resp.Routes = &rt
+			}
 		}
 		if err := writeFrame(out, resp, bin); err != nil {
 			return 1
@@ -277,8 +330,72 @@ func newTestWorker(t *testing.T, h *helperSpawner, gpuLayers int) *workerEmbedde
 	w.lg = logger.NewNamed("indexer.test")
 	w.startTimeout = 30 * time.Second
 	w.newCmd = h.cmd
-	t.Cleanup(func() { _ = w.Close() })
+	t.Cleanup(func() {
+		// Errorf, not Fatalf: the other cleanups still run.
+		closed := make(chan struct{})
+		go func() {
+			defer close(closed)
+			_ = w.Close()
+		}()
+		select {
+		case <-closed:
+		case <-time.After(childWaitBound):
+			t.Errorf("the worker's Close did not return in %s\n%s", childWaitBound, goroutineStacks())
+		}
+	})
 	return w
+}
+
+// childWaitBound bounds a test's wait on an embedder child, or on a
+// worker call that waits for one: a hang fails the test and names what
+// it waited for, long before the test binary's timeout.
+const childWaitBound = 30 * time.Second
+
+// recvWithin receives from ch, or fails the test with every goroutine's
+// stack once childWaitBound has passed.
+func recvWithin[T any](t testing.TB, what string, ch <-chan T) T {
+	t.Helper()
+	timer := time.NewTimer(childWaitBound)
+	defer timer.Stop()
+	select {
+	case v := <-ch:
+		return v
+	case <-timer.C:
+		t.Log(goroutineStacks())
+		t.Fatalf("no %s in %s", what, childWaitBound)
+	}
+	var zero T
+	return zero
+}
+
+// doneWithin runs fn on a goroutine of its own and waits for it as
+// recvWithin does.
+func doneWithin(t testing.TB, what string, fn func()) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		fn()
+	}()
+	recvWithin(t, what, done)
+}
+
+// closeWithin closes w within childWaitBound.
+func closeWithin(t testing.TB, w *workerEmbedder) {
+	t.Helper()
+	var err error
+	doneWithin(t, "return from the worker's Close", func() { err = w.Close() })
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// goroutineStacks is every goroutine's stack, for a test that gave up
+// waiting.
+func goroutineStacks() string {
+	var b strings.Builder
+	_ = pprof.Lookup("goroutine").WriteTo(&b, 2)
+	return b.String()
 }
 
 // clearBackoff skips the restart wait a failure imposes, so a test can
@@ -462,7 +579,7 @@ func TestWorkerEmbedder_QueryJumpsDocQueue(t *testing.T) {
 	default:
 	}
 	for i := 0; i < 2; i++ {
-		b := <-docsDone
+		b := recvWithin(t, "end of a batch", docsDone)
 		if b.err != nil {
 			t.Fatal(b.err)
 		}
@@ -550,7 +667,7 @@ func TestWorkerEmbedder_DocsProgressUnderQueryStream(t *testing.T) {
 	defer cancel()
 	vecs, err := w.EmbedDocs(ctx, texts)
 	close(stop)
-	qwg.Wait()
+	doneWithin(t, "end of the query callers", qwg.Wait)
 	if err != nil {
 		t.Fatalf("doc batch starved by queries: %v", err)
 	}
@@ -930,7 +1047,7 @@ func TestWorkerEmbedder_SetThreadsWhileBusy(t *testing.T) {
 	if elapsed := time.Since(start); elapsed > frame/2 {
 		t.Fatalf("SetThreads waited %s for the frame in flight", elapsed)
 	}
-	if err := <-errCh; err != nil {
+	if err := recvWithin(t, "end of the frame in flight", errCh); err != nil {
 		t.Fatalf("the frame in flight failed: %v", err)
 	}
 	if h.spawns() != 1 {
@@ -953,9 +1070,7 @@ func TestWorkerEmbedder_CloseReapsChild(t *testing.T) {
 	if _, err := w.EmbedDocs(context.Background(), []string{"x"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := w.Close(); err != nil {
-		t.Fatal(err)
-	}
+	closeWithin(t, w)
 	if st := h.cmdAt(0).ProcessState; st == nil || !st.Exited() {
 		t.Fatalf("child not reaped on Close: %v", st)
 	}
@@ -998,9 +1113,7 @@ func TestWorkerEmbedder_IdleRetiresChild(t *testing.T) {
 	if h.spawns() != 2 {
 		t.Fatalf("spawned %d children, want a respawn after retirement", h.spawns())
 	}
-	if err := w.Close(); err != nil {
-		t.Fatal(err)
-	}
+	closeWithin(t, w)
 	time.Sleep(3 * w.idleTimeout) // a countdown armed before Close must not act after it
 	if h.spawns() != 2 {
 		t.Fatalf("spawned %d children after Close", h.spawns())
@@ -1077,10 +1190,16 @@ func TestWorkerEmbedder_RequestRacingIdleRetirement(t *testing.T) {
 				runtime.Gosched()
 			}
 		}
-		if _, err := w.EmbedQuery(context.Background(), "q"); err != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), childWaitBound)
+		_, err := w.EmbedQuery(ctx, "q")
+		if ctx.Err() != nil {
+			t.Log(goroutineStacks())
+		}
+		cancel()
+		if err != nil {
 			t.Fatalf("round %d: request racing the retirement failed: %v", i, err)
 		}
-		<-done
+		recvWithin(t, "end of the idle retirement", done)
 	}
 	if n := h.spawns(); n < 1+rounds/2 {
 		t.Fatalf("spawned %d children, want a fresh one after every retirement", n)
@@ -1104,9 +1223,7 @@ func TestWorkerEmbedder_CloseDuringIdleRetirement(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 	start := time.Now()
-	if err := w.Close(); err != nil {
-		t.Fatal(err)
-	}
+	closeWithin(t, w)
 	if elapsed := time.Since(start); elapsed > workerStopGrace/2 {
 		t.Fatalf("Close waited %s for the retirement's grace", elapsed)
 	}
@@ -1147,9 +1264,7 @@ func TestWorkerEmbedder_CloseInterruptsRequest(t *testing.T) {
 	// Let the request reach the child before closing.
 	waitLive(t, w)
 	start := time.Now()
-	if err := w.Close(); err != nil {
-		t.Fatal(err)
-	}
+	closeWithin(t, w)
 	if elapsed := time.Since(start); elapsed > 30*time.Second {
 		t.Fatalf("Close waited %s for the in-flight request", elapsed)
 	}
@@ -1181,16 +1296,14 @@ func TestWorkerEmbedder_CloseWithDetachedRoundTrip(t *testing.T) {
 	waitReady(t, w)
 	time.Sleep(50 * time.Millisecond) // the frame is on the wire
 	cancel()
-	if err := <-errCh; !errors.Is(err, context.Canceled) {
+	if err := recvWithin(t, "return of the cancelled frame", errCh); !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
 	if st := h.cmdAt(0).ProcessState; st != nil {
 		t.Fatal("an abandoned frame must not reap the child")
 	}
 	start := time.Now()
-	if err := w.Close(); err != nil {
-		t.Fatal(err)
-	}
+	closeWithin(t, w)
 	if elapsed := time.Since(start); elapsed > 30*time.Second {
 		t.Fatalf("Close waited %s for the detached frame", elapsed)
 	}
@@ -1225,9 +1338,7 @@ func TestWorkerEmbedder_CloseReleasesQueuedCallers(t *testing.T) {
 	}()
 	time.Sleep(50 * time.Millisecond) // both parked on the slot
 	start := time.Now()
-	if err := w.Close(); err != nil {
-		t.Fatal(err)
-	}
+	closeWithin(t, w)
 	for i := 0; i < 3; i++ {
 		select {
 		case err := <-errs:
@@ -1254,9 +1365,7 @@ func TestWorkerEmbedder_CloseDuringSpawn(t *testing.T) {
 		t.Fatalf("err = %v, want DeadlineExceeded", err)
 	}
 	start := time.Now()
-	if err := w.Close(); err != nil {
-		t.Fatal(err)
-	}
+	closeWithin(t, w)
 	if elapsed := time.Since(start); elapsed > 3*time.Second {
 		t.Fatalf("Close waited %s for the spawn", elapsed)
 	}

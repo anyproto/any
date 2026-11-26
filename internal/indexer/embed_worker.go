@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -34,9 +35,13 @@ const (
 	workerDefaultRequestTimeout = 3 * time.Minute
 	// workerStopGrace is how long a child gets to exit on stdin EOF
 	// before it is killed.
-	workerStopGrace  = 5 * time.Second
-	workerMinBackoff = time.Second
-	workerMaxBackoff = time.Minute
+	workerStopGrace = 5 * time.Second
+	// workerOrphanGrace is how long a child whose stdin ended waits for its
+	// own cleanup before it exits anyway: past workerStopGrace, so a parent
+	// that is still there kills it first.
+	workerOrphanGrace = 2 * workerStopGrace
+	workerMinBackoff  = time.Second
+	workerMaxBackoff  = time.Minute
 	// workerStderrTail is how many of the child's last stderr lines are
 	// quoted when it dies, or of those printed before a crash report.
 	workerStderrTail = 12
@@ -76,8 +81,17 @@ type workerEmbedder struct {
 	startTimeout time.Duration
 	// idleTimeout is workerIdleTimeout; 0 never retires an idle child.
 	idleTimeout time.Duration
-	// bulkWait is aneBulkWait.
-	bulkWait time.Duration
+	// bulkWait is aneBulkWait, pkgWait anePackageWait; pkgWaitUntil is when
+	// the wait for the package's download ends, set by its first waiter.
+	bulkWait     time.Duration
+	pkgWait      time.Duration
+	pkgPoll      time.Duration // how often the wait looks for the package
+	pkgWaitFrom  sync.Once
+	pkgWaitUntil time.Time // set under pkgWaitFrom
+	pkgWaitOver  sync.Once
+	// noPackage: there is no Neural Engine path only because the package
+	// is neither on disk nor downloaded.
+	noPackage bool
 	// newCmd builds the child command from a spec; injectable so tests
 	// can drive a helper process instead of a real model.
 	newCmd func(localSpec) (*exec.Cmd, error)
@@ -89,10 +103,11 @@ type workerEmbedder struct {
 	live      atomic.Pointer[os.Process]
 	closing   atomic.Bool
 	closeOnce sync.Once
-	// preparing counts the PrepareBulk calls in flight: the child is not
-	// retired as idle under them. bulkWaited: one of them ran into the
-	// deadline, and no later call waits.
+	// preparing counts the PrepareBulk calls in flight, holds the HoldBulk
+	// ones not released: no child is retired as idle under either.
+	// bulkWaited: a PrepareBulk ran into the deadline; no later call waits.
 	preparing  atomic.Int32
+	holds      atomic.Int32
 	bulkWaited atomic.Bool
 	gaveUp     chan struct{} // closed with bulkWaited
 	// settledChild is the last child whose Neural Engine path settled.
@@ -101,6 +116,12 @@ type workerEmbedder struct {
 	// pkgOnDisk reports whether the Core ML package is complete on disk;
 	// nil = not asked.
 	pkgOnDisk func() bool
+	// wake closes, and is replaced, when texts a bulk frame left without a
+	// vector are worth sending again (DeferredWake).
+	wakeMu sync.Mutex
+	wake   chan struct{}
+	// routed counts where bulk texts went, for the log.
+	routed bulkRouting
 
 	// idleTimer runs retireIdle. Created stopped and never reassigned,
 	// so its callback uses it without the slot.
@@ -149,7 +170,7 @@ func newWorkerEmbedder(cfg config.IndexLocal, modelsDir, legacyModelsDir string,
 		}
 		reqTimeout = d
 	}
-	pkg, err := planNeuralEngine(cfg, modelsDir)
+	pkg, noPackage, err := planNeuralEnginePackage(cfg, modelsDir)
 	if err != nil {
 		return nil, err
 	}
@@ -162,6 +183,7 @@ func newWorkerEmbedder(cfg config.IndexLocal, modelsDir, legacyModelsDir string,
 	}
 	w := newWorkerEmbedderFromSpec(spec, reqTimeout)
 	w.dl = dl
+	w.noPackage = noPackage
 	if pkg != nil {
 		dir := spec.coremlDir
 		w.pkgOnDisk = func() bool { return pkg.complete(dir) }
@@ -197,7 +219,11 @@ func newWorkerEmbedderFromSpec(spec localSpec, reqTimeout time.Duration) *worker
 		startTimeout: workerStartTimeout,
 		idleTimeout:  workerIdleTimeout,
 		bulkWait:     aneBulkWait,
+		pkgWait:      anePackageWait,
+		pkgPoll:      time.Second,
 		gaveUp:       make(chan struct{}),
+		wake:         make(chan struct{}),
+		routed:       bulkRouting{every: bulkLogEvery},
 		newCmd:       embedderCmd,
 		now:          time.Now,
 		slot:         newChildSlot(),
@@ -276,14 +302,47 @@ func (w *workerEmbedder) EmbedsTitles() bool {
 }
 
 func (w *workerEmbedder) EmbedTitledDocs(ctx context.Context, titles, texts []string) ([][]float32, error) {
-	vecs, _, err := w.EmbedDocsRouted(ctx, titles, texts)
+	vecs, _, err := w.embedDocs(ctx, titles, texts, false)
 	return vecs, err
 }
 
-// EmbedDocsRouted is EmbedTitledDocs that also says which runtimes
-// embedded the batch: the child counts its texts per runtime in every
-// frame.
+var (
+	_ BulkDeferrer = (*workerEmbedder)(nil)
+	_ BulkHolder   = (*workerEmbedder)(nil)
+)
+
+// EmbedDocsRouted is EmbedTitledDocs for bulk work, with the runtimes
+// that embedded the batch. A text whose Neural Engine function is
+// loading comes back without a vector (docs/13-index.md § Neural Engine).
 func (w *workerEmbedder) EmbedDocsRouted(ctx context.Context, titles, texts []string) ([][]float32, EmbedRoute, error) {
+	return w.embedDocs(ctx, titles, texts, true)
+}
+
+// DeferredWake returns a channel that closes when a function of the
+// Neural Engine path was loaded or given up, or the child changed: texts
+// EmbedDocsRouted left without a vector since the call may embed now.
+func (w *workerEmbedder) DeferredWake() <-chan struct{} {
+	w.wakeMu.Lock()
+	defer w.wakeMu.Unlock()
+	return w.wake
+}
+
+func (w *workerEmbedder) wakeDeferred() {
+	w.wakeMu.Lock()
+	defer w.wakeMu.Unlock()
+	close(w.wake)
+	w.wake = make(chan struct{})
+}
+
+// HoldBulk keeps the child from being retired as idle until release: a
+// drain holds it across its waits, when it sends no frame.
+func (w *workerEmbedder) HoldBulk() (release func()) {
+	w.holds.Add(1)
+	var once sync.Once
+	return func() { once.Do(func() { w.holds.Add(-1) }) }
+}
+
+func (w *workerEmbedder) embedDocs(ctx context.Context, titles, texts []string, bulk bool) ([][]float32, EmbedRoute, error) {
 	if len(texts) == 0 {
 		return nil, EmbedRoute{}, nil
 	}
@@ -296,7 +355,7 @@ func (w *workerEmbedder) EmbedDocsRouted(ctx context.Context, titles, texts []st
 		if len(titles) == len(texts) {
 			frameTitles = titles[start:end]
 		}
-		r := w.run(ctx, workerReq{Op: workerOpEmbed, Role: workerRoleDoc, Texts: texts[start:end], Titles: frameTitles})
+		r := w.run(ctx, workerReq{Op: workerOpEmbed, Role: workerRoleDoc, Texts: texts[start:end], Titles: frameTitles, Bulk: bulk})
 		out = append(out, r.vecs...)
 		tally.add(r)
 		if r.err != nil {
@@ -306,12 +365,140 @@ func (w *workerEmbedder) EmbedDocsRouted(ctx context.Context, titles, texts []st
 	return out, tally.route(), nil
 }
 
+// bulkLogEvery spaces the log lines about bulk texts that ran on
+// llama.cpp or were left pending.
+const bulkLogEvery = 30 * time.Second
+
+// bulkRouting counts where the texts of bulk frames went since the last
+// log line about them; a stretch with nothing to say stays counted.
+type bulkRouting struct {
+	mu            sync.Mutex
+	every         time.Duration // bulkLogEvery
+	last          time.Time     // the last line
+	from          time.Time     // the first batch counted since
+	ane           int
+	llama         map[string]int // by EmbedReason*; "" = none to give
+	llamaBackends map[string]bool
+	deferred      int
+	deferredFrom  time.Time // the first deferred text counted
+}
+
+// noteFrame counts a bulk frame for the log, where a Neural Engine path
+// is configured to miss. Under the slot: a child that goes right after
+// has the frame in its last line.
+func (w *workerEmbedder) noteFrame(req workerReq, res frameResult) {
+	w.mu.Lock()
+	planned := w.spec.coremlDir != ""
+	w.mu.Unlock()
+	if !req.Bulk || !planned || res.routes == nil {
+		return
+	}
+	var t routeTally
+	t.add(res)
+	w.noteBulk(t)
+}
+
+// noteBulk counts bulk work and logs when a line is due.
+func (w *workerEmbedder) noteBulk(t routeTally) {
+	r := &w.routed
+	r.mu.Lock()
+	now := time.Now()
+	if r.from.IsZero() {
+		r.from = now
+	}
+	r.ane += t.ane
+	for reason, n := range t.reasons {
+		if r.llama == nil {
+			r.llama = map[string]int{}
+		}
+		r.llama[reason] += n
+	}
+	for b, n := range t.llama {
+		if n > 0 {
+			if r.llamaBackends == nil {
+				r.llamaBackends = map[string]bool{}
+			}
+			r.llamaBackends[b] = true
+		}
+	}
+	if t.deferred > 0 {
+		if r.deferred == 0 {
+			r.deferredFrom = now
+		}
+		r.deferred += t.deferred
+	}
+	r.mu.Unlock()
+	w.logBulk(false)
+}
+
+// logBulk writes the line about the batches counted since the last one,
+// if a text of theirs ran on llama.cpp or was left pending, once that
+// line is bulkLogEvery old. now: the child is going; do not wait.
+func (w *workerEmbedder) logBulk(now bool) {
+	r := &w.routed
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.from.IsZero() || (!now && time.Since(r.last) < r.every) {
+		return
+	}
+	llama := 0
+	var reasons, backends []string
+	for reason, n := range r.llama {
+		llama += n
+		reasons = append(reasons, orDefaultString(reason, "none")+"="+strconv.Itoa(n))
+	}
+	for b := range r.llamaBackends {
+		backends = append(backends, b)
+	}
+	slices.Sort(reasons)
+	slices.Sort(backends)
+	if llama > 0 || r.deferred > 0 {
+		fields := []zap.Field{
+			zap.Duration("window", time.Since(r.from).Round(time.Millisecond)),
+			zap.Int("ane", r.ane), zap.Int("llama", llama),
+		}
+		if llama > 0 {
+			fields = append(fields, zap.String("llamaBackends", strings.Join(backends, ",")),
+				zap.String("llamaReasons", strings.Join(reasons, " ")))
+		}
+		if r.deferred > 0 {
+			fields = append(fields, zap.Int("deferred", r.deferred),
+				zap.Duration("deferredFor", time.Since(r.deferredFrom).Round(time.Millisecond)))
+		}
+		w.lg.Info("local embedder bulk routing", fields...)
+		r.last = time.Now()
+		r.from, r.deferredFrom = time.Time{}, time.Time{}
+		r.ane, r.deferred, r.llama, r.llamaBackends = 0, 0, nil, nil
+	}
+}
+
+// firstFunction names the first Core ML function of the spec's model.
+func firstFunction(spec localSpec) string {
+	if spec.profile == "" {
+		return ""
+	}
+	m, err := lookupLocalModel(spec.profile)
+	if err != nil || m.coreml == nil || len(m.coreml.lengths) == 0 {
+		return ""
+	}
+	return "s" + strconv.Itoa(m.coreml.lengths[0])
+}
+
+func orDefaultString(v, def string) string {
+	if v != "" {
+		return v
+	}
+	return def
+}
+
 // routeTally sums what the frames of one batch said: the child's counts,
 // and the reason each frame had when it was served.
 type routeTally struct {
-	ane    int
-	llama  map[string]int // per EmbedBackend* of the child that served the frame
-	reason string         // of the last frame that had one
+	ane      int
+	llama    map[string]int // per EmbedBackend* of the child that served the frame
+	reasons  map[string]int // llama.cpp texts per EmbedReason*; "" = none to give
+	deferred int
+	reason   string // of the last frame that had one
 }
 
 func (t *routeTally) add(r frameResult) {
@@ -320,11 +507,18 @@ func (t *routeTally) add(r frameResult) {
 		return
 	}
 	t.ane += rt.ANE
+	t.deferred += len(rt.Deferred)
 	if rt.Llama > 0 {
 		if t.llama == nil {
 			t.llama = map[string]int{}
 		}
 		t.llama[r.llama] += rt.Llama
+	}
+	for reason, n := range r.reasons {
+		if t.reasons == nil {
+			t.reasons = map[string]int{}
+		}
+		t.reasons[reason] += n
 	}
 	if r.reason != "" {
 		t.reason = r.reason
@@ -333,7 +527,7 @@ func (t *routeTally) add(r frameResult) {
 
 // route names the runtimes behind a batch's tally.
 func (t routeTally) route() EmbedRoute {
-	rt := EmbedRoute{Reason: t.reason}
+	rt := EmbedRoute{Reason: t.reason, Deferred: t.deferred}
 	if t.ane > 0 {
 		rt.Backends = append(rt.Backends, EmbedBackendANE)
 	}
@@ -367,6 +561,35 @@ func (w *workerEmbedder) frameReason(rt *workerRoutes) string {
 	if rt == nil || rt.Llama == 0 {
 		return ""
 	}
+	return w.missReason(rt.Miss)
+}
+
+// frameReasons counts the llama.cpp texts of a frame by their reason,
+// read like frameReason's; "" counts those with none to give.
+func (w *workerEmbedder) frameReasons(rt *workerRoutes) map[string]int {
+	if rt == nil || rt.Llama == 0 {
+		return nil
+	}
+	out := map[string]int{}
+	rest := rt.Llama
+	for miss, n := range rt.Misses {
+		out[w.missReason(miss)] += n
+		rest -= n
+	}
+	// A frame that names only its last miss: one text is known to be it.
+	if len(rt.Misses) == 0 && rt.Miss != "" {
+		out[w.missReason(rt.Miss)]++
+		rest--
+	}
+	if rest > 0 {
+		out[w.missReason("")] += rest
+	}
+	return out
+}
+
+// missReason is the reason for a text that ran on llama.cpp, given why
+// the child's Neural Engine path missed it ("" = it did not say).
+func (w *workerEmbedder) missReason(miss string) string {
 	w.mu.Lock()
 	planned, aneOff := w.spec.coremlDir != "", w.coremlDisabled
 	gpuFailed, gpuDisabled := w.gpuDisabled, w.spec.gpuLayers == 0
@@ -374,10 +597,10 @@ func (w *workerEmbedder) frameReason(rt *workerRoutes) string {
 	switch {
 	case planned && aneOff:
 		return EmbedReasonANEOff
-	case planned && rt.Miss == EmbedReasonFunctionLoading && w.bulkWaited.Load():
+	case planned && miss == EmbedReasonFunctionLoading && w.bulkWaited.Load():
 		return EmbedReasonReadinessTimeout
-	case planned && rt.Miss != "":
-		return rt.Miss
+	case planned && miss != "":
+		return miss
 	case gpuFailed:
 		return EmbedReasonGPUFailed
 	case gpuDisabled:
@@ -498,10 +721,12 @@ type frameResult struct {
 	err  error
 	// routes is what the child said about a document frame; llama, the
 	// runtime llama.cpp embeds on in that child (EmbedBackend*); reason,
-	// why texts of the frame ran off the fastest runtime (EmbedReason*).
-	routes *workerRoutes
-	llama  string
-	reason string
+	// why texts of the frame ran off the fastest runtime (EmbedReason*),
+	// and reasons, how many for each.
+	routes  *workerRoutes
+	llama   string
+	reason  string
+	reasons map[string]int
 }
 
 // run performs one frame on the child, taking the slot for the
@@ -524,6 +749,7 @@ func (w *workerEmbedder) run(ctx context.Context, req workerReq) frameResult {
 	res := make(chan frameResult, 1)
 	go func() {
 		r := w.serve(ctx, req)
+		w.noteFrame(req, r)
 		w.armIdle()
 		w.slot.release(urgent) // before the send: a caller that returns finds the slot free
 		res <- r
@@ -553,6 +779,11 @@ func (w *workerEmbedder) serve(ctx context.Context, req workerReq) frameResult {
 		return frameResult{err: err} // caller gone before the write: nothing owed
 	}
 	hdr, bin, err := w.roundTrip(req)
+	if errors.Is(err, errChildGone) {
+		// It never took the request: it ended idle, before this frame.
+		w.reapChild(err, diedIdle)
+		return frameResult{err: fmt.Errorf("%w: %v", ErrEmbedderUnavailable, err)}
+	}
 	if err != nil {
 		w.failChild(err)
 		return frameResult{err: fmt.Errorf("%w: %v", ErrEmbedderUnavailable, err)}
@@ -562,15 +793,21 @@ func (w *workerEmbedder) serve(ctx context.Context, req workerReq) frameResult {
 		return frameResult{err: fmt.Errorf("indexer: local embedder: %s", hdr.Error)}
 	}
 	vecs, err := decodeVectors(bin, hdr.N, hdr.Dim)
-	if err == nil && len(vecs) != len(req.Texts) {
-		err = fmt.Errorf("indexer: embed worker: got %d vectors for %d texts", len(vecs), len(req.Texts))
+	if err == nil {
+		// Only a bulk frame may come back short of vectors.
+		var deferred []int
+		if hdr.Routes != nil && req.Bulk {
+			deferred = hdr.Routes.Deferred
+		}
+		vecs, err = unpackVectors(vecs, deferred, len(req.Texts))
 	}
 	if err != nil {
 		w.failChild(err)
 		return frameResult{err: fmt.Errorf("%w: %v", ErrEmbedderUnavailable, err)}
 	}
 	w.backoff = 0
-	return frameResult{vecs: vecs, routes: hdr.Routes, llama: w.child.llama, reason: w.frameReason(hdr.Routes)}
+	return frameResult{vecs: vecs, routes: hdr.Routes, llama: w.child.llama,
+		reason: w.frameReason(hdr.Routes), reasons: w.frameReasons(hdr.Routes)}
 }
 
 // roundTrip writes one request and waits for its response. Every
@@ -580,7 +817,7 @@ func (w *workerEmbedder) serve(ctx context.Context, req workerReq) frameResult {
 func (w *workerEmbedder) roundTrip(req workerReq) (workerResp, []byte, error) {
 	c := w.child
 	if err := writeFrame(c.w, req, nil); err != nil {
-		return workerResp{}, nil, fmt.Errorf("write to embedder child: %w", err)
+		return workerResp{}, nil, fmt.Errorf("%w: write to it: %v", errChildGone, err)
 	}
 	timer := time.NewTimer(w.reqTimeout)
 	defer timer.Stop()
@@ -598,6 +835,9 @@ func (w *workerEmbedder) roundTrip(req workerReq) (workerResp, []byte, error) {
 	}
 }
 
+// errChildGone is a child the request could not be written to.
+var errChildGone = errors.New("embedder child is gone")
+
 // ensureChild spawns the child if needed, honoring the restart backoff.
 // With retireStale, a running child whose spec has moved on (threads
 // changed, GPU demoted while it was busy) is retired first — the
@@ -606,6 +846,15 @@ func (w *workerEmbedder) ensureChild(retireStale bool) error {
 	if w.closing.Load() {
 		return errWorkerClosed
 	}
+	if w.child != nil {
+		select {
+		case <-w.child.errDone:
+			// It ended since its last frame, with nothing asked of it.
+			w.reapChild(errors.New("embedder child exited"), diedIdle)
+		default:
+		}
+	}
+	// After the reap, which can take a runtime from the next child.
 	spec := w.childSpec()
 	if w.child != nil {
 		if !retireStale || w.child.spec == spec {
@@ -690,7 +939,14 @@ func (w *workerEmbedder) startChild(spec localSpec) (*embedChild, error) {
 		settled: make(chan struct{}),
 		spec:    spec,
 	}
+	c.first = firstFunction(spec)
 	c.onSettle = func() { w.settledChild.Store(c) }
+	c.onStatus = func(exited, wakes bool) {
+		w.logBulk(exited)
+		if wakes {
+			w.wakeDeferred()
+		}
+	}
 	go c.readLoop(bufio.NewReaderSize(stdout, 64<<10))
 	go c.pumpStderr(stderr, w.lg)
 
@@ -729,11 +985,17 @@ func (w *workerEmbedder) startChild(spec localSpec) (*embedChild, error) {
 	return c, nil
 }
 
-// failChild retires a child whose stream broke and classifies the
-// death: any abnormal exit with GPU offload active demotes this process
-// to CPU. The check is deliberately coarse. A wedged GPU stops
-// answering rather than dying, so a request timeout has to count as a
-// fault — at the price of demoting a merely slow frame. That costs one
+// How a child the worker lets go of as failed was found.
+const (
+	diedInFrame = iota // its stream broke under a request
+	diedIdle           // it ended with nothing asked of it
+)
+
+// failChild retires a child whose stream broke under a request and
+// classifies the death: any abnormal exit with GPU offload active demotes
+// this process to CPU. The check is deliberately coarse. A wedged GPU
+// stops answering rather than dying, so a request timeout has to count as
+// a fault — at the price of demoting a merely slow frame. That costs one
 // run at CPU speed (~4x slower embedding, FTS untouched) against
 // repeated multi-minute stalls, and a restart starts on the GPU again.
 // On a GPU-less machine the demotion is a no-op. A child that had begun
@@ -741,7 +1003,13 @@ func (w *workerEmbedder) startChild(spec localSpec) (*embedChild, error) {
 // stream that broke because Close killed the child is not a fault:
 // retired silently.
 // Caller holds the slot.
-func (w *workerEmbedder) failChild(cause error) {
+func (w *workerEmbedder) failChild(cause error) { w.reapChild(cause, diedInFrame) }
+
+// reapChild is failChild for a child found in the state how names. One
+// found dead while idle had nothing asked of it: it costs neither
+// runtime, unless it died inside a Core ML call of its own (aneCalls),
+// which costs the Neural Engine path. Caller holds the slot.
+func (w *workerEmbedder) reapChild(cause error, how int) {
 	if w.closing.Load() {
 		w.stopChild(false)
 		return
@@ -754,22 +1022,32 @@ func (w *workerEmbedder) failChild(cause error) {
 	w.child = nil
 	c.detached.Store(true)
 	w.live.Store(nil)
+	w.logBulk(true)
+	w.wakeDeferred()
 	gpu := c.spec.gpuLayers != 0
 	// stop() joins the stderr pump before returning, so the tail read
 	// after it is complete — that is where llama.cpp's abort message is.
 	waitErr := c.stop(false)
-	w.penalize()
 	fields := []zap.Field{zap.Error(cause), zap.String("childStderr", c.stderr.String())}
 	if waitErr != nil {
 		fields = append(fields, zap.String("childExit", waitErr.Error()))
 	}
+	// Read after stop, which joined the stderr pump.
+	inCall := c.calls.Load() > 0
+	if how == diedIdle && !inCall {
+		w.lg.Warn("local embedder child found dead while idle", fields...)
+		return
+	}
+	w.penalize()
 	w.mu.Lock()
 	// One runtime per death, the Neural Engine path first once the
 	// child used Core ML: the death does not say which of the two
 	// caused it. A death that repeats in a child started without Core ML
-	// clears the Neural Engine, which comes back on, once. Read after
-	// stop, which joined the stderr pump.
-	demoteCoreML := c.spec.coremlDir != "" && c.coreml.Load() && !w.coremlDisabled
+	// clears the Neural Engine, which comes back on, once.
+	// A Core ML call that began and did not end is Core ML work too, even
+	// with the path off.
+	usedCoreML := c.coreml.Load() || inCall
+	demoteCoreML := c.spec.coremlDir != "" && usedCoreML && !w.coremlDisabled
 	demote := !demoteCoreML && gpu && !w.gpuDisabled
 	restoreCoreML := c.spec.coremlDir == "" && w.coremlDisabled && !w.coremlRestored
 	if demoteCoreML {
@@ -799,49 +1077,49 @@ func (w *workerEmbedder) failChild(cause error) {
 
 var _ BulkPreparer = (*workerEmbedder)(nil)
 
-// PrepareBulk holds bulk work back until the Neural Engine path of the
-// running child has its first function, so a backlog does not run on
-// llama.cpp while Core ML prepares. A drain calls it before every round
-// that has work: a child whose path has settled answers at once, without
-// the slot, and one that replaced it is waited on like the first.
-//
-// It starts the child and returns when the child reports a function
-// loaded, a failed load or the path off, when the child exits, when ctx
-// ends, or at the child's deadline: bulkWait after its first waiter, the
-// same for all of them. A wait that ran into a deadline is the last one,
-// for every caller. Nothing waits without a Neural Engine path, or while
-// its package is not on disk. The slot is free meanwhile: searches are
-// served.
-//
-// waiting, when set, is called once if the call is going to wait, before
-// it starts a child: the child's model load is part of the wait.
-func (w *workerEmbedder) PrepareBulk(ctx context.Context, waiting func()) {
+// PrepareBulk starts the child and waits, with the slot free, until its
+// Neural Engine path has settled on its first function, and says how
+// that went (Bulk*); docs/13-index.md § Neural Engine has the rules.
+func (w *workerEmbedder) PrepareBulk(ctx context.Context, waiting func()) string {
 	spec := w.childSpec()
-	if spec.coremlDir == "" || w.closing.Load() || w.bulkWaited.Load() {
-		return
+	switch {
+	case spec.coremlDir == "" && w.noPackage:
+		return BulkNoPackage
+	case spec.coremlDir == "" || w.closing.Load():
+		return BulkNoWait
+	case w.bulkWaited.Load():
+		return BulkTimeout
 	}
 	// Only a child the worker still holds answers: one being retired
 	// stays live until it is reaped, and its replacement settles on its
 	// own.
 	if c := w.settledChild.Load(); c != nil && !c.detached.Load() && c.spec == spec {
-		return
+		return c.settledAs
 	}
-	if w.pkgOnDisk != nil && !w.pkgOnDisk() {
-		return
+	said := false
+	say := func() {
+		if !said && waiting != nil {
+			said = true
+			waiting()
+		}
+	}
+	if how := w.awaitPackage(ctx, say); how != "" {
+		return how
 	}
 	// From here on the call waits: for a child to start, or for the
 	// running one's path to settle.
-	if waiting != nil {
-		waiting()
-	}
+	say()
 	// Before the spawn: its idle timer must not fire under the wait.
 	w.preparing.Add(1)
 	defer w.preparing.Add(-1)
 	if r := w.run(ctx, workerReq{Op: workerOpDim}); r.err != nil {
-		return
+		if ctx.Err() != nil {
+			return BulkCancelled
+		}
+		return BulkNoChild
 	}
 	if err := w.slot.acquire(ctx, false); err != nil {
-		return
+		return BulkCancelled
 	}
 	c := w.child
 	// Under the slot, on the child that was selected: the Neural Engine
@@ -849,7 +1127,13 @@ func (w *workerEmbedder) PrepareBulk(ctx context.Context, waiting func()) {
 	// above, and a child without Core ML never reports on it.
 	if c == nil || c.spec.coremlDir == "" || w.bulkWaited.Load() {
 		w.slot.release(false)
-		return
+		switch {
+		case c == nil:
+			return BulkNoChild
+		case c.spec.coremlDir == "":
+			return BulkNoWait
+		}
+		return BulkTimeout
 	}
 	if c.waitUntil.IsZero() {
 		c.waitUntil = time.Now().Add(w.bulkWait)
@@ -858,16 +1142,23 @@ func (w *workerEmbedder) PrepareBulk(ctx context.Context, waiting func()) {
 	defer timer.Stop()
 	w.slot.release(false)
 
+	how := ""
 	select {
 	case <-c.settled:
+		how = c.settledAs
 	default:
 		select {
 		case <-c.settled:
+			how = c.settledAs
 		case <-w.gaveUp: // another caller's deadline
+			how = BulkTimeout
 		case <-c.errDone: // the child exited
+			how = BulkNoChild
 		case <-ctx.Done():
+			how = BulkCancelled
 		case <-timer.C:
 			w.giveUpBulk()
+			how = BulkTimeout
 		}
 	}
 	// The idle countdown restarts here, not at the spawn. A busy slot
@@ -876,13 +1167,74 @@ func (w *workerEmbedder) PrepareBulk(ctx context.Context, waiting func()) {
 		w.armIdle()
 		w.slot.release(false)
 	}
+	return how
+}
+
+// awaitPackage waits for the Core ML package while its download runs,
+// queued behind the model's or transferring. "" = it is on disk; else
+// why bulk work goes on without it (Bulk*). waiting runs if it waits.
+func (w *workerEmbedder) awaitPackage(ctx context.Context, waiting func()) string {
+	if w.pkgOnDisk == nil || w.pkgOnDisk() {
+		return ""
+	}
+	if w.pkgDl == nil {
+		return BulkNoPackage
+	}
+	// One bound for every waiter, from the first: past it nobody waits,
+	// whatever the wall clock does (the deadline keeps its monotonic time).
+	w.pkgWaitFrom.Do(func() { w.pkgWaitUntil = time.Now().Add(w.pkgWait) })
+	left := time.Until(w.pkgWaitUntil)
+	failed := func() string {
+		if w.pkgOnDisk() {
+			return ""
+		}
+		return BulkDownloadFailed
+	}
+	select {
+	case <-w.pkgDl.done:
+		return failed()
+	default:
+	}
+	if left <= 0 {
+		return BulkDownloadTimeout
+	}
+	waiting()
+	timer := time.NewTimer(left)
+	defer timer.Stop()
+	// The package is whole before its licence texts are, which is when
+	// the download says it is done.
+	poll := time.NewTicker(w.pkgPoll)
+	defer poll.Stop()
+	for {
+		select {
+		case <-w.pkgDl.done:
+			return failed()
+		case <-poll.C:
+			if w.pkgOnDisk() {
+				return ""
+			}
+		case <-ctx.Done():
+			return BulkCancelled
+		case <-timer.C:
+			// It can have landed since the last look.
+			if w.pkgOnDisk() {
+				return ""
+			}
+			w.pkgWaitOver.Do(func() {
+				w.lg.Warn("local embedder: the wait for the core ml package's download ran out; bulk embedding opens on llama.cpp",
+					zap.Duration("waited", w.pkgWait))
+			})
+			return BulkDownloadTimeout
+		}
+	}
 }
 
 // giveUpBulk ends every wait for a first function, now and later.
 func (w *workerEmbedder) giveUpBulk() {
 	if w.bulkWaited.CompareAndSwap(false, true) {
 		close(w.gaveUp)
-		w.lg.Warn("local embedder: no neural engine function ready in time; bulk embedding starts on llama.cpp",
+		w.wakeDeferred()
+		w.lg.Warn("local embedder: the wait for the neural engine's first function ran out; bulk embedding opens without it",
 			zap.Duration("waited", w.bulkWait))
 	}
 }
@@ -899,6 +1251,8 @@ func (w *workerEmbedder) stopChild(graceful bool) {
 	c.detached.Store(true)
 	_ = c.stop(graceful)
 	w.live.Store(nil)
+	w.logBulk(true)
+	w.wakeDeferred()
 }
 
 // armIdle restarts the idle countdown after a frame. Caller holds the
@@ -928,7 +1282,18 @@ func (w *workerEmbedder) retireIdle() {
 	if w.child == nil || w.closing.Load() {
 		return
 	}
-	if w.preparing.Load() > 0 {
+	// One that ended by itself, with nothing asked of it, is reaped now,
+	// under a hold too: its restart backoff runs from here.
+	select {
+	case <-w.child.errDone:
+		w.reapChild(errors.New("embedder child exited"), diedIdle)
+		return
+	default:
+	}
+	// Not under a wait for the first function, nor, with a Core ML path,
+	// under a drain, which may be waiting for a function.
+	coreML := w.child.spec.coremlDir != ""
+	if w.preparing.Load() > 0 || (coreML && w.holds.Load() > 0) {
 		w.idleTimer.Reset(w.idleTimeout)
 		return
 	}
@@ -1047,6 +1412,22 @@ type embedChild struct {
 	settled    chan struct{}
 	settleOnce sync.Once
 	onSettle   func() // run once, before settled closes
+	// settledAs is how the path settled (BulkReady, BulkFailed, BulkOff);
+	// written before settled closes.
+	settledAs string
+	// onStatus runs on every report about the Neural Engine path, and
+	// when the child's stderr ends (exited). wakes: texts left without a
+	// vector may embed now (aneWakes).
+	onStatus func(exited, wakes bool)
+	// calls counts the Core ML calls the child reported begun and not
+	// ended (aneCalls). Left set by a child that died in one: reapChild
+	// reads it.
+	calls atomic.Int32
+	// first names the path's first function ("s128"), the one whose
+	// report settles it; "" = any function's does.
+	first string
+	// aneOff: the child said its path is off. Stderr pump only.
+	aneOff bool
 	// detached: the worker has let go of this child (retired, failed,
 	// never started). Set under the slot, read without it.
 	detached atomic.Bool
@@ -1081,7 +1462,14 @@ func (c *embedChild) readLoop(r *bufio.Reader) {
 // mid-decode. Over-long lines are truncated, not fatal.
 func (c *embedChild) pumpStderr(r io.Reader, lg logger.CtxLogger) {
 	defer close(c.errDone)
+	// A child that exits has nothing loading: no text waits for it.
+	defer func() {
+		if c.onStatus != nil {
+			c.onStatus(true, true)
+		}
+	}()
 	br := bufio.NewReaderSize(r, 8<<10)
+	open := map[string]bool{}
 	for {
 		line, err := br.ReadString('\n')
 		if line = strings.TrimRight(line, "\r\n"); line != "" {
@@ -1090,9 +1478,16 @@ func (c *embedChild) pumpStderr(r io.Reader, lg logger.CtxLogger) {
 			}
 			c.stderr.add(line)
 			if status, ok := strings.CutPrefix(line, aneLogPrefix); ok {
-				c.coreml.Store(!strings.HasPrefix(status, aneOffStatus))
-				if aneSettles(status) {
+				// Off is final for a child: a late line does not undo it.
+				if strings.HasPrefix(status, aneOffStatus) {
+					c.aneOff = true
+				}
+				c.coreml.Store(!c.aneOff)
+				aneCalls(open, status)
+				c.calls.Store(int32(len(open)))
+				if aneSettles(status, c.first) {
 					c.settleOnce.Do(func() {
+						c.settledAs = aneSettledAs(status)
 						if c.onSettle != nil {
 							c.onSettle()
 						}
@@ -1100,6 +1495,9 @@ func (c *embedChild) pumpStderr(r io.Reader, lg logger.CtxLogger) {
 					})
 				}
 				lg.Info("local embedder neural engine", zap.String("status", status))
+				if c.onStatus != nil {
+					c.onStatus(false, aneWakes(status))
+				}
 			} else {
 				lg.Debug("embedder child", zap.String("stderr", line))
 			}

@@ -59,7 +59,9 @@ func newAuthCmd() *cobra.Command {
 			// The generated phrase goes to stderr (backup warning),
 			// keeping stdout machine-readable like `init`.
 			if resp.Mnemonic != "" {
-				server.PrintMnemonic(resp.Mnemonic)
+				if err := server.PrintMnemonic(cmd.ErrOrStderr(), resp.Mnemonic); err != nil {
+					return fmt.Errorf("the account was created, but its recovery phrase could not be written: %w", err)
+				}
 				resp = &api.AuthResponse{AccountId: resp.AccountId, Created: resp.Created}
 			}
 			return printJSON(resp)

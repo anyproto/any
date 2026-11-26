@@ -1,9 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
-	"fmt"
-
 	"github.com/spf13/cobra"
 )
 
@@ -18,12 +15,7 @@ func newStatusCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			out, err := json.MarshalIndent(h, "", "  ")
-			if err != nil {
-				return err
-			}
-			fmt.Println(string(out))
-			return nil
+			return printJSON(h)
 		},
 	}
 }

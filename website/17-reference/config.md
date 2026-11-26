@@ -67,7 +67,7 @@ The passkey is the one secret the server may need at boot: it comes from the env
 | `index.embedder` | `ANY_INDEX_EMBEDDER` | `auto` | `auto` (local alone without `index.openai.apiKey`; with a key, online primary + local fallback, same model, and indexed text and queries go to `index.openai.baseUrl`; a build without the local embedder needs the key) \| `local` (on-device) \| `ollama` \| `openai` \| `none` (FTS-only) |
 | `index.embedBatch` | `ANY_INDEX_EMBED_BATCH` | `64` | docs per embed request |
 | `index.embedConcurrency` | `ANY_INDEX_EMBED_CONCURRENCY` | `0` | parallel batches; 0 = 1 for local, 4 for online |
-| `index.embedStartDelay` | `ANY_INDEX_EMBED_START_DELAY` | `2m` | local embedder: documents start embedding this long after boot; `0` starts at once. Searches are not delayed, nor is an HTTP embedder |
+| `index.embedStartDelay` | `ANY_INDEX_EMBED_START_DELAY` | `2m` | local embedder: documents start embedding this long after boot; `0` is no delay. Searches are not delayed, nor is an HTTP embedder. With the Neural Engine path and texts waiting, the embedder loads under the delay, and documents wait for its first function even past it |
 | `index.ollama.url` | `ANY_INDEX_OLLAMA_URL` | `http://localhost:11434` | |
 | `index.ollama.model` | `ANY_INDEX_OLLAMA_MODEL` | `embeddinggemma` | |
 | `index.openai.baseUrl` | `ANY_INDEX_OPENAI_BASE_URL` | empty | any OpenAI-compatible `/embeddings` host; required for `openai`, and for `auto` once a key is set |

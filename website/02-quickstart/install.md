@@ -5,7 +5,7 @@ order: 10
 ---
 # Install
 
-`any` is a single binary. It runs the server (`any run`) and is the CLI client for everything else. The checks on this page and the quickstarts after it use `curl` and `jq`.
+`any` is a single binary. It runs the server (`any run`), and each command that works on the server's data makes HTTP requests to it; some endpoints have no command, and a few commands, such as `any init`, work without HTTP. The checks on this page and the quickstarts after it use `curl` and `jq`.
 
 ## From a release tarball
 

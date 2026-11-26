@@ -617,21 +617,24 @@ func TestWorkerEmbedder_PrepareBulkWaitsForTheFirstFunction(t *testing.T) {
 	if w.bulkWaited.Load() {
 		t.Fatal("the wait ended on the deadline")
 	}
-	// Settled: nothing to wait for, and nothing to take the slot for.
-	if err := w.slot.acquire(context.Background(), false); err != nil {
-		t.Fatal(err)
-	}
-	asked := make(chan struct{})
-	go func() {
-		defer close(asked)
-		w.PrepareBulk(context.Background(), nil)
+	// Settled: nothing to wait for, and nothing to take the slot for. The
+	// slot goes back on a failure too, or the worker's Close waits for it.
+	func() {
+		if err := w.slot.acquire(context.Background(), false); err != nil {
+			t.Fatal(err)
+		}
+		defer w.slot.release(false)
+		asked := make(chan struct{})
+		go func() {
+			defer close(asked)
+			w.PrepareBulk(context.Background(), nil)
+		}()
+		select {
+		case <-asked:
+		case <-time.After(5 * time.Second):
+			t.Fatal("a settled child was asked through the slot")
+		}
 	}()
-	select {
-	case <-asked:
-	case <-time.After(5 * time.Second):
-		t.Fatal("a settled child was asked through the slot")
-	}
-	w.slot.release(false)
 	if _, err := w.EmbedDocs(context.Background(), []string{"a"}); err != nil {
 		t.Fatal(err)
 	}
@@ -703,7 +706,7 @@ func TestWorkerEmbedder_PrepareBulkIgnoresARetiringChild(t *testing.T) {
 	case <-time.After(delay):
 	}
 	_ = h.cmdAt(0).Process.Kill() // end the grace
-	<-retired
+	recvWithin(t, "end of the retirement", retired)
 	select {
 	case <-asked:
 	case <-time.After(10 * time.Second):
@@ -913,7 +916,7 @@ func TestWorkerEmbedder_PrepareBulkLeavesWithItsContext(t *testing.T) {
 	case <-time.After(frame / 2):
 		t.Fatal("the cancelled caller waited behind another frame")
 	}
-	if err := <-served; err != nil {
+	if err := recvWithin(t, "return of the search", served); err != nil {
 		t.Fatalf("search during the wait: %v", err)
 	}
 	if h.spawns() != 1 {
@@ -1065,18 +1068,28 @@ func TestWorkerEmbedder_PrepareBulkSaysWhenItWaits(t *testing.T) {
 
 func TestANESettles(t *testing.T) {
 	for status, want := range map[string]bool{
-		"s128 ready (plan 3.4s, load 1.3s, 812 operations on the neural engine, 4 on the cpu)": true,
-		"s2048 not used: core ml plans it off the neural engine":                               true,
-		aneOffStatus + "llama.cpp embeds everything: no function can be used":                  true,
-		"starting":                                    false,
-		"package compiled in 6.909s":                  false,
-		"s512 released after 5m0s unused":             false,
-		"s128 failed: prediction":                     false,
-		"s128 not used any more: 3 failures in a row": true,
+		"s128 ready (open 3.4s, first predict 41ms, validate 1.3s; asked for 5s ago)": true,
+		"s128 not used: coreml: load s128: test error 1":                              true,
+		"s128 not used any more: 3 failures in a row":                                 true,
+		aneOffStatus + "llama.cpp embeds everything: no function can be used":         true,
+		// Another function's report is not the first one's.
+		"s2048 not used: coreml: load s2048: test error 1":    false,
+		"s256 ready (open 1s, first predict 1s, validate 1s)": false,
+		"starting":                        false,
+		"package compiled in 6.909s":      false,
+		"s512 released after 5m0s unused": false,
+		"s128 failed: prediction":         false,
 	} {
-		if got := aneSettles(status); got != want {
+		if got := aneSettles(status, "s128"); got != want {
 			t.Errorf("aneSettles(%q) = %v, want %v", status, got, want)
 		}
+	}
+	// With no first function named, any function's report settles.
+	if !aneSettles("s2048 not used: broken", "") || aneSettles("starting", "") {
+		t.Error("aneSettles without a first function")
+	}
+	if got := firstFunction(localSpec{profile: config.LocalModelEmbeddingGemma2}); got != "s128" {
+		t.Errorf("firstFunction = %q, want s128", got)
 	}
 }
 
@@ -1088,7 +1101,7 @@ func TestLocal_EmbedANEFinishesVector(t *testing.T) {
 	n.start()
 	n.loads.Wait()
 	l := &Local{ane: n, project: []float32{0.6, 0.8, 0, 0}, outDim: 2}
-	vec, ok := l.embedANE([]llama.Token{2, 7, 1})
+	vec, ok, _ := l.embedANE([]llama.Token{2, 7, 1}, false)
 	if !ok {
 		t.Fatal("not served")
 	}
@@ -1102,7 +1115,7 @@ func TestLocal_EmbedANEFinishesVector(t *testing.T) {
 			t.Fatalf("vec %v, want %v", vec, want)
 		}
 	}
-	if _, ok := (&Local{}).embedANE([]llama.Token{2, 7, 1}); ok {
+	if _, ok, _ := (&Local{}).embedANE([]llama.Token{2, 7, 1}, false); ok {
 		t.Fatal("served with no neural engine")
 	}
 }
@@ -1189,27 +1202,6 @@ func TestEmbeddingGemma2Package_Download(t *testing.T) {
 		t.Fatalf("licence texts missing from %s", pkg.noticesDir(models))
 	}
 	t.Logf("downloaded and verified in %s at %s", time.Since(start).Round(time.Second), dir)
-}
-
-// A function longer than any text the embedder sends is never asked
-// for, so it is not listed.
-func TestUsableLengths(t *testing.T) {
-	all := []int{128, 256, 512, 1024, 2048}
-	for _, c := range []struct {
-		maxTokens int
-		want      []int
-	}{
-		{2048, all},
-		{4096, all},
-		{1024, []int{128, 256, 512, 1024}},
-		{1025, all},
-		{300, []int{128, 256, 512}},
-		{64, []int{128}},
-	} {
-		if got := usableLengths(all, c.maxTokens); !reflect.DeepEqual(got, c.want) {
-			t.Errorf("texts of up to %d tokens: lengths %v, want %v", c.maxTokens, got, c.want)
-		}
-	}
 }
 
 // textServer serves bodies by URL path and records the paths asked for.

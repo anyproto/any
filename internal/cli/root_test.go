@@ -84,3 +84,42 @@ func TestDiscoverAddr(t *testing.T) {
 		t.Fatalf("two running, ANY_ACCOUNT selects: %q", got)
 	}
 }
+
+// `any debug neural-engine` reads the config itself and never connects:
+// the pre-run discovers no server for it, as it does for the other debug
+// commands.
+func TestPreRun_NoDiscoveryForTheNeuralEngineDiagnostic(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("ANY_DATA_DIR", root)
+	t.Setenv("ANY_ACCOUNT", "")
+	os.Unsetenv("ANY_ACCOUNT")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	one := config.AccountDir(root, "Aone")
+	if err := os.MkdirAll(one, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := server.Acquire(one)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Release()
+	if err := os.WriteFile(config.AddrPath(one), []byte("127.0.0.1:4343\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	addr := flags.Addr
+	defer func() { flags.Addr = addr }()
+	cmdRoot := newRootCmd()
+	for path, want := range map[string]string{"debug neural-engine": "", "debug space": "127.0.0.1:4343"} {
+		cmd, _, err := cmdRoot.Find(strings.Fields(path))
+		if err != nil {
+			t.Fatalf("find %q: %v", path, err)
+		}
+		flags.Addr = ""
+		cmdRoot.PersistentPreRun(cmd, nil)
+		if flags.Addr != want {
+			t.Errorf("%s: address %q, want %q", path, flags.Addr, want)
+		}
+	}
+}

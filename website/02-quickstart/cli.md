@@ -1,11 +1,11 @@
 ---
 title: CLI
-description: The any command is a thin HTTP client — one subcommand per endpoint, pretty JSON on stdout — shown here for the create → query → subscribe loop.
+description: The any command is a thin HTTP client for the server's data — each command that works on it makes HTTP requests and prints pretty JSON on stdout, and some endpoints have no command — shown here for the create → query → subscribe loop.
 order: 30
 ---
 # CLI
 
-`any <cmd>` builds a request, sends it to the running server, and prints the JSON reply. It never opens the database itself, so anything the CLI does, `curl` can do, and vice versa.
+`any <cmd>` builds a request, sends it to the running server, and prints the JSON reply. It never opens the database itself, so anything a command does with the server's data, `curl` can do. A few commands work without HTTP, such as `any init` ([CLI reference](../reference/cli.html)).
 
 ## Global flags and exit codes
 
