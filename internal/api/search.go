@@ -67,7 +67,7 @@ type SearchRequest struct {
 	// any.collections, <ownerId>.<propId>, modifiedAt, …), in every mode — like Require /
 	// Exclude. The object's live row is checked, so a property write is
 	// honored at once. Limit still counts matching records. An object
-	// with no row never matches.
+	// with no row never matches. null and {} mean no filter.
 	Filter json.RawMessage `json:"filter,omitempty"`
 }
 
