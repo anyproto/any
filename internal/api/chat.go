@@ -4,7 +4,7 @@ package api
 // is an open enum — known values are "link" and "image"; clients fall
 // back to rendering `Link` as a plain anchor for unknown types. `Link`
 // is the URL (any:// for in-space references, https:// or similar for
-// out-of-space resources). Attachments are immutable post-create.
+// out-of-space resources). The author replaces the whole set on edit.
 type ChatAttachment struct {
 	Type string `json:"type"`
 	Link string `json:"link"`
@@ -70,7 +70,8 @@ type ChatAgentMeta struct {
 // acting on behalf of the signer (vs typed by the signer directly).
 //
 // `attachments` is a map keyed by short opaque ids (≤ 64 chars,
-// [A-Za-z0-9_-]+) carrying {type, link, order?}. Create-only.
+// [A-Za-z0-9_-]+) carrying {type, link}. The author can replace the
+// whole map later through ChatEditRequest.
 //
 // `context` is the sender's view at send time (ChatMessageContext).
 // Optional, create-only.
@@ -86,12 +87,16 @@ type ChatSendRequest struct {
 	Control          *ChatMessageControl       `json:"control,omitempty"`
 }
 
-// ChatEditRequest is the body of PATCH .../messages/:msgId. Only
-// `text` is editable post-creation — replyToMessageId is intentionally
-// stable so thread structure doesn't shift. Edit by non-author returns
-// 403 chat.not_author.
+// ChatEditRequest is the body of PATCH .../messages/:msgId. `text`
+// replaces the message text. `attachments`, when present, replaces the
+// whole attachments map (`{}` removes them all); when absent the
+// attachments stay as they are. `text` may be empty only while the
+// edited message keeps at least one attachment. replyToMessageId and
+// the other groups are create-only. Edit by non-author returns 403
+// chat.not_author.
 type ChatEditRequest struct {
-	Text string `json:"text"`
+	Text        string                     `json:"text"`
+	Attachments *map[string]ChatAttachment `json:"attachments,omitempty"`
 }
 
 // Error code namespace for chat endpoints.

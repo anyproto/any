@@ -922,6 +922,7 @@ func TestBeforeModify_DisallowedPath(t *testing.T) {
 		{FieldReplyToMessageId},
 		{FieldAgent},
 		{FieldAgent, FieldAgentDone},
+		{FieldAttachments, "a1"},
 		{"_ver", "id"},
 		{"_deletedAt"},
 		{"unknown"},
@@ -970,5 +971,98 @@ func TestBeforeDelete_NotAuthor(t *testing.T) {
 	if err == nil || !errors.Is(err, handler.ErrValidation) ||
 		!strings.Contains(err.Error(), "not_author") {
 		t.Fatalf("expected not_author rejection, got %v", err)
+	}
+}
+
+// --- BeforeModify (attachments) ---------------------------------------------
+
+func attachmentsMap(a *anyenc.Arena, id, link string) *anyenc.Value {
+	entry := a.NewObject()
+	entry.Set(FieldAttachmentType, a.NewString("link"))
+	entry.Set(FieldAttachmentLink, a.NewString(link))
+	m := a.NewObject()
+	m.Set(id, entry)
+	return m
+}
+
+func TestBeforeModify_Attachments_Author(t *testing.T) {
+	arena := &anyenc.Arena{}
+	before := existingMessage(arena, alice, 1700000000, "msg")
+	ctx := &handler.ChangeCtx{Change: makeChange(alice, 1700000050), Before: before}
+	for _, op := range []*handler.Op{
+		{Type: handler.OpSet, Path: []string{FieldAttachments}, Payload: attachmentsMap(arena, "a1", "https://e/1")},
+		{Type: handler.OpUnset, Path: []string{FieldAttachments}},
+	} {
+		if err := (messagesHandler{}).BeforeModify(ctx, nil, op, &handler.Sink{}); err != nil {
+			t.Errorf("op %v by author: %v", op.Type, err)
+		}
+	}
+}
+
+func TestBeforeModify_Attachments_NotAuthor(t *testing.T) {
+	arena := &anyenc.Arena{}
+	before := existingMessage(arena, alice, 1700000000, "msg")
+	ctx := &handler.ChangeCtx{Change: makeChange(bob, 1700000050), Before: before}
+	for _, op := range []*handler.Op{
+		{Type: handler.OpSet, Path: []string{FieldAttachments}, Payload: attachmentsMap(arena, "a1", "https://e/1")},
+		{Type: handler.OpUnset, Path: []string{FieldAttachments}},
+	} {
+		err := (messagesHandler{}).BeforeModify(ctx, nil, op, &handler.Sink{})
+		if err == nil || !errors.Is(err, handler.ErrValidation) || !strings.Contains(err.Error(), "not_author") {
+			t.Errorf("op %v by non-author: got %v, want not_author", op.Type, err)
+		}
+	}
+}
+
+func TestBeforeModify_Attachments_Invalid(t *testing.T) {
+	arena := &anyenc.Arena{}
+	before := existingMessage(arena, alice, 1700000000, "msg")
+	ctx := &handler.ChangeCtx{Change: makeChange(alice, 1700000050), Before: before}
+	for name, payload := range map[string]*anyenc.Value{
+		"empty":   arena.NewObject(),
+		"bad id":  attachmentsMap(arena, "bad id", "https://e/1"),
+		"no link": attachmentsMap(arena, "a1", ""),
+		"string":  arena.NewString("x"),
+	} {
+		op := &handler.Op{Type: handler.OpSet, Path: []string{FieldAttachments}, Payload: payload}
+		if err := (messagesHandler{}).BeforeModify(ctx, nil, op, &handler.Sink{}); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
+func TestBeforeModify_TextEdit_EmptyNeedsAttachments(t *testing.T) {
+	arena := &anyenc.Arena{}
+	emptyText := handler.Op{Type: handler.OpSet, Path: []string{FieldText}, Payload: arena.NewString("")}
+	setAtts := handler.Op{Type: handler.OpSet, Path: []string{FieldAttachments}, Payload: attachmentsMap(arena, "a1", "https://e/1")}
+	unsetAtts := handler.Op{Type: handler.OpUnset, Path: []string{FieldAttachments}}
+
+	plain := existingMessage(arena, alice, 1700000000, "msg")
+	withAtts := existingMessage(arena, alice, 1700000000, "msg")
+	withAtts.Set(FieldAttachments, attachmentsMap(arena, "a0", "https://e/0"))
+
+	cases := []struct {
+		name   string
+		before *anyenc.Value
+		ops    []handler.Op
+		ok     bool
+	}{
+		{"plain message", plain, []handler.Op{emptyText}, false},
+		{"plain message, attachments set in change", plain, []handler.Op{emptyText, setAtts}, true},
+		{"message keeps attachments", withAtts, []handler.Op{emptyText}, true},
+		{"attachments unset in change", withAtts, []handler.Op{emptyText, unsetAtts}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := &handler.RecordChange{Id: "msg1", Ops: tc.ops}
+			ctx := &handler.ChangeCtx{Change: makeChange(alice, 1700000050), Before: tc.before}
+			err := (messagesHandler{}).BeforeModify(ctx, rec, &rec.Ops[0], &handler.Sink{})
+			if tc.ok && err != nil {
+				t.Errorf("rejected: %v", err)
+			}
+			if !tc.ok && (err == nil || !strings.Contains(err.Error(), "text required")) {
+				t.Errorf("got %v, want text required", err)
+			}
+		})
 	}
 }

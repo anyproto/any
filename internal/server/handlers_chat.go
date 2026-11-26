@@ -36,8 +36,7 @@ func (d *deps) chatSend(c echo.Context) error {
 	}
 	// Text carries the message unless attachments do — a photo sent with
 	// no caption is an ordinary message. Only a payload with neither is
-	// empty, and stays rejected. (Edit below is deliberately stricter:
-	// it replaces text on an existing record and can't clear it.)
+	// empty, and stays rejected.
 	if req.Text == "" && len(req.Attachments) == 0 && req.Control == nil {
 		return writeError(c, http.StatusBadRequest, api.ErrChatTextRequired, "text required", nil)
 	}
@@ -96,7 +95,7 @@ func (d *deps) chatSend(c echo.Context) error {
 //	@Param		spaceId		path		string				true	"Space ID"
 //	@Param		objectId	path		string				true	"Chat object ID"
 //	@Param		msgId		path		string				true	"Message ID"
-//	@Param		body		body		api.ChatEditRequest	true	"New text"
+//	@Param		body		body		api.ChatEditRequest	true	"New text and, optionally, the new attachments"
 //	@Success	200			{object}	api.ModifyResult
 //	@Failure	400			{object}	api.ErrorEnvelope
 //	@Failure	403			{object}	api.ErrorEnvelope
@@ -113,12 +112,15 @@ func (d *deps) chatEdit(c echo.Context) error {
 	if !ok {
 		return nil
 	}
-	if req.Text == "" {
-		return writeError(c, http.StatusBadRequest, api.ErrChatTextRequired, "text required", nil)
-	}
 	if len(req.Text) > chat.MaxTextBytes {
 		return writeError(c, http.StatusBadRequest, api.ErrChatTextTooLong, "text too long",
 			map[string]any{"max_bytes": chat.MaxTextBytes, "got_bytes": len(req.Text)})
+	}
+	if req.Attachments != nil {
+		if err := validateAttachmentsRequest(*req.Attachments); err != nil {
+			return writeError(c, http.StatusBadRequest, api.ErrChatAttachmentsInvalid,
+				err.Error(), nil)
+		}
 	}
 
 	// Pre-edit mention snapshot for the push diff — must happen BEFORE
@@ -130,7 +132,10 @@ func (d *deps) chatEdit(c echo.Context) error {
 		pushBefore, pushOk = d.push.ChatMentionsBefore(c.Request().Context(), sp, objectId, msgId)
 	}
 
-	res, err := chat.Edit(c.Request().Context(), sp, objectId, msgId, d.account, req.Text)
+	res, err := chat.Edit(c.Request().Context(), sp, objectId, msgId, d.account, chat.EditOpts{
+		Text:        req.Text,
+		Attachments: req.Attachments,
+	})
 	if err != nil {
 		return chatOpError(c, err, sp.Id(), objectId)
 	}
@@ -303,6 +308,9 @@ func chatOpError(c echo.Context, err error, spaceId, objectId string) error {
 		return writeError(c, http.StatusNotFound, api.ErrChatNotFound,
 			"message not found",
 			map[string]any{"spaceId": spaceId, "objectId": objectId})
+	case errors.Is(err, chat.ErrTextRequired):
+		return writeError(c, http.StatusBadRequest, api.ErrChatTextRequired,
+			"text required: the message would have neither text nor attachments", nil)
 	case errors.Is(err, chat.ErrNotAuthor):
 		return writeError(c, http.StatusForbidden, api.ErrChatNotAuthor,
 			"only the message author can perform this action",
