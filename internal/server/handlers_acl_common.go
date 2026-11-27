@@ -89,6 +89,13 @@ func aclOpError(c echo.Context, err error, details map[string]any) error {
 		return writeError(c, http.StatusForbidden, "acl.forbidden",
 			"the coordinator refuses this operation for this account", details)
 	}
+	// The coordinator refuses ACL records for a space it holds as
+	// deleted or in pending deletion, which an account deletion makes
+	// of every space the account owns.
+	if errors.Is(err, space.ErrCoordinatorSpaceDeleted) {
+		return writeError(c, http.StatusConflict, "acl.space_deleted",
+			"the network refuses ACL changes for this space: it is deleted there, or its owner's account deletion is pending", details)
+	}
 	msg := err.Error()
 	switch {
 	case strings.Contains(msg, "no permissions") || strings.Contains(msg, "permission denied"):

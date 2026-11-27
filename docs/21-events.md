@@ -218,6 +218,19 @@ are named. Capped at 200 entries, `"truncated": true` past that — a
 panel showing an unlisted target re-reads too. At-most-once like every
 bus event; a missed frame costs one stale panel until the next read.
 
+### `account.deletion` — the account's deletion state (device scope)
+
+Published when the account's deletion state on the network changes,
+whichever device of the account caused it: a request, a revert, or the
+network deleting the data (docs/03-api.md § Account → Deletion). The
+data is the state `GET /v1/account` carries as `deletion`. No envelope
+target.
+
+```jsonc
+// type: "account.deletion"
+{ "state": "pending", "deleteAt": "2026-09-19T17:06:40Z", "fetchedAt": "2026-08-20T17:06:40Z" }
+```
+
 ## Scopes over the network
 
 `account` and `space` events ride the SDK's ephemeral pub/sub
@@ -303,8 +316,9 @@ interest on it). Approximate by design.
   (channel closed) rather than blocking the publisher. Construction-time
   taps observe every publish loss-free (the process registry is one).
   Created lazily via `deps.eventsHub()` — no engine/SDK dependency.
-  `any`-internal producers (the indexer's process updates and
-  `links.updated`, wired in `engine.go`) publish through it directly.
+  `any`-internal producers (the indexer's process updates,
+  `links.updated` and `account.deletion`, wired in `engine.go`) publish
+  through it directly.
 - `internal/server/handlers_events.go` — `eventsPublish` (strict bind →
   validate → stamp sender → route by scope through `publishScoped`) and
   `eventsSubscribe` (parse filters → acquire network interests → the

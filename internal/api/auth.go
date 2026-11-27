@@ -33,8 +33,8 @@ type AuthCapabilities struct {
 // holds nothing of it) keeps the server closed until the account's
 // space registry has synced once from a sync node or a direct peer:
 // until then Authorized is false and every guarded route answers 503
-// auth.login_pending. The wait survives a restart and ends on its own;
-// poll GET /v1/auth.
+// auth.login_pending, DELETE /v1/account/deletion excepted. The wait
+// survives a restart and ends on its own; poll GET /v1/auth.
 type LoginState struct {
 	// AccountId is the account being logged in.
 	AccountId string `json:"accountId"`
@@ -48,6 +48,11 @@ type LoginState struct {
 	NetworkPeers int `json:"networkPeers"`
 	LocalPeers   int `json:"localPeers"`
 	GlobalPeers  int `json:"globalPeers"`
+	// Deletion is the account's deletion state on the network; omitted
+	// while the network has never answered on this device. A sync
+	// node may refuse an account whose deletion is pending, so a
+	// waiting login serves DELETE /v1/account/deletion.
+	Deletion *AccountDeletion `json:"deletion,omitempty"`
 }
 
 // AuthStatusResponse is the GET /v1/auth reply.

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -20,6 +21,8 @@ func registerAccountRoutes(g *echo.Group, d *deps) {
 	g.DELETE("/account/icon", d.accountIconDelete)
 	g.POST("/account/access-code", d.accountRedeemAccessCode)
 	g.GET("/account/limits", d.accountLimits)
+	g.POST("/account/deletion", d.accountDeletionRequest)
+	g.DELETE("/account/deletion", d.accountDeletionRevert)
 }
 
 // accountGet handles GET /v1/account.
@@ -40,7 +43,143 @@ func (d *deps) accountGet(c echo.Context) error {
 		m := accountMetadataToAPI(meta)
 		resp.Metadata = &m
 	}
+	deletion, err := d.sdk.Account().Deletion(c.Request().Context())
+	if err != nil {
+		return sdkOpError(c, err, nil)
+	}
+	resp.Deletion = accountDeletionToAPI(deletion)
 	return c.JSON(http.StatusOK, resp)
+}
+
+// accountDeletionRequest handles POST /v1/account/deletion.
+//
+// The request changes nothing on this device and does not sign out.
+//
+//	@Summary		Request deletion of the account from the network
+//	@Description	Asks the network to delete the account: every space the account owns enters pending deletion until deleteAt, and the network may stop syncing them. Revertible with DELETE /v1/account/deletion until then. Nothing changes on the device. A managed server requires the control token.
+//	@Tags			account
+//	@Produce		json
+//	@Success		200	{object}	api.AccountDeletion
+//	@Failure		403	{object}	api.ErrorEnvelope
+//	@Failure		409	{object}	api.ErrorEnvelope
+//	@Failure		503	{object}	api.ErrorEnvelope
+//	@Router			/account/deletion [post]
+func (d *deps) accountDeletionRequest(c echo.Context) error {
+	if !d.requireControl(c) {
+		return nil
+	}
+	st, err := d.sdk.Account().RequestDeletion(c.Request().Context())
+	if err != nil {
+		return accountDeletionError(c, err)
+	}
+	return c.JSON(http.StatusOK, accountDeletionToAPI(&st))
+}
+
+// accountDeletionRevert handles DELETE /v1/account/deletion.
+//
+//	@Summary		Revert a pending deletion of the account
+//	@Description	Cancels a pending deletion: the account's spaces return to active on the network. Also answers while a login waits for its first sync: a sync node may refuse an account whose deletion is pending, and the revert needs only the account key. A managed server requires the control token.
+//	@Tags			account
+//	@Produce		json
+//	@Success		200	{object}	api.AccountDeletion
+//	@Failure		403	{object}	api.ErrorEnvelope
+//	@Failure		409	{object}	api.ErrorEnvelope
+//	@Failure		503	{object}	api.ErrorEnvelope
+//	@Router			/account/deletion [delete]
+func (d *deps) accountDeletionRevert(c echo.Context) error {
+	if !d.requireControl(c) {
+		return nil
+	}
+	st, err := d.sdk.Account().RevertDeletion(c.Request().Context())
+	if err != nil {
+		return accountDeletionError(c, err)
+	}
+	return c.JSON(http.StatusOK, accountDeletionToAPI(&st))
+}
+
+// accountDeletionRevertWaiting serves DELETE /v1/account/deletion for a
+// login that waits for its first sync: the revert needs the account key
+// and the network, not the account's data. The call runs as a goroutine
+// of the waiting engine, so a teardown cancels and joins it.
+func (d *deps) accountDeletionRevertWaiting(c echo.Context) error {
+	if !d.requireControl(c) {
+		return nil
+	}
+	type result struct {
+		st  space.AccountDeletion
+		err error
+	}
+	res := make(chan result, 1)
+	reqCtx := c.Request().Context()
+	// Under openMu: a teardown or a discard marks the engine done and
+	// clears the wait there before it joins the engine's goroutines and
+	// closes the SDK.
+	d.openMu.Lock()
+	w := d.login.Load()
+	if w != nil && w.eng.done.Load() {
+		w = nil
+	}
+	if w != nil {
+		w.eng.spawn(func(ctx context.Context) {
+			// Bound by the engine and by the request, like a gated call.
+			ctx, cancel := context.WithCancel(ctx)
+			defer cancel()
+			defer context.AfterFunc(reqCtx, cancel)()
+			st, err := w.sdk.Account().RevertDeletion(ctx)
+			res <- result{st, err}
+		})
+	}
+	d.openMu.Unlock()
+	if w == nil {
+		return writeError(c, http.StatusServiceUnavailable, "server.unavailable",
+			"the login ended during the call — retry", nil)
+	}
+	select {
+	case r := <-res:
+		if r.err != nil {
+			return accountDeletionError(c, r.err)
+		}
+		return c.JSON(http.StatusOK, accountDeletionToAPI(&r.st))
+	case <-reqCtx.Done():
+		return writeError(c, http.StatusServiceUnavailable, "server.unavailable", "request cancelled", nil)
+	}
+}
+
+// accountDeletionToAPI is the SDK's deletion state on the wire; nil
+// while the network has never answered.
+func accountDeletionToAPI(st *space.AccountDeletion) *api.AccountDeletion {
+	if st == nil {
+		return nil
+	}
+	out := &api.AccountDeletion{State: st.State.String(), FetchedAt: st.FetchedAt}
+	if !st.DeleteAt.IsZero() {
+		deleteAt := st.DeleteAt
+		out.DeleteAt = &deleteAt
+	}
+	return out
+}
+
+// accountDeletionError maps the errors of a deletion request or revert
+// to the canonical envelope.
+func accountDeletionError(c echo.Context, err error) error {
+	switch {
+	case errors.Is(err, space.ErrAccountDeletionPending):
+		return writeError(c, http.StatusConflict, api.ErrAccountDeletionPending,
+			"the account's deletion is already pending — GET /v1/account reads its date, DELETE /v1/account/deletion reverts it", nil)
+	case errors.Is(err, space.ErrAccountDeletionNotPending):
+		return writeError(c, http.StatusConflict, api.ErrAccountDeletionNotPending,
+			"no deletion of the account is pending", nil)
+	case errors.Is(err, space.ErrAccountDeleted):
+		return writeError(c, http.StatusConflict, api.ErrAccountDeleted,
+			"the network has deleted the account's data", nil)
+	case errors.Is(err, space.ErrAccountNotOnNetwork):
+		return writeError(c, http.StatusConflict, api.ErrAccountNotOnNetwork,
+			"the network has never registered the account: it holds nothing of it", nil)
+	case errors.Is(err, space.ErrNetworkUnavailable):
+		return writeError(c, http.StatusServiceUnavailable, api.ErrAccountNetworkUnavailable,
+			"the network did not complete the call, but may have taken it — read the deletion state before retrying", nil)
+	}
+	return sdkOpError(c, err, nil)
 }
 
 // accountLimits handles GET /v1/account/limits.

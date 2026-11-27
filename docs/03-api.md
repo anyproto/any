@@ -265,7 +265,8 @@ restart.
   closed until its space registry (the tech space) has synced once,
   from a sync node or from another device of the account reached
   directly. Until then `GET /v1/auth` reads `authorized: false` with a
-  `login` object, and every guarded route answers
+  `login` object, and every guarded route but
+  `DELETE /v1/account/deletion` (§ Account → Deletion) answers
   `503 auth.login_pending`. Nothing runs against the unsynced account:
   no device registration, no push subscription, no indexing. The call
   itself returns at once; poll `GET /v1/auth`. With no network the
@@ -315,7 +316,9 @@ a managed one allows.
 ```
 
 `login.sync: "offline"` means nothing the tech space could sync from is
-connected, so the wait cannot end yet. `GET /v1/health` carries the same
+connected, so the wait cannot end yet. `login.deletion` is the
+account's deletion state on the network (§ Account → Deletion), present
+once the network has answered. `GET /v1/health` carries the same
 `login` object, with an empty `account`.
 
 A managed server reports every capability `true` and an empty
@@ -426,8 +429,9 @@ open, so the server removes nothing and the login keeps waiting. A removal that 
 holds the dir) ends the login and leaves a dir that still reads as a
 waiting login, never as an open account.
 
-Errors: `503 auth.login_pending` (on every guarded route while a login
-waits for the account's first sync; `GET /v1/auth` reports the wait),
+Errors: `503 auth.login_pending` (on every guarded route but
+`DELETE /v1/account/deletion` while a login waits for the account's
+first sync; `GET /v1/auth` reports the wait),
 `400 auth.bad_mnemonic` (BIP-39 validation),
 `400 request.invalid_field` (mnemonic+accountId together, index
 without mnemonic, `replace` without a credential, `accountId` on a
@@ -480,12 +484,15 @@ full).
 | DELETE | `/v1/account/icon`           | `Account.DeleteIcon`                   |
 | POST   | `/v1/account/access-code`    | redeem an alpha invite code (any-invite) |
 | GET    | `/v1/account/limits`         | `Account.Limits` — storage pool, shared-spaces limit |
+| POST   | `/v1/account/deletion`       | `Account.RequestDeletion` — delete the account from the network |
+| DELETE | `/v1/account/deletion`       | `Account.RevertDeletion` — cancel a pending deletion |
 
-`GET /v1/account` → `{id, techSpaceId, metadata?}`. `metadata`
+`GET /v1/account` → `{id, techSpaceId, metadata?, deletion?}`. `metadata`
 (`{name?, description?, iconCid?}`) is the locally stored profile,
 omitted when none was written. `techSpaceId` is the account's tech
 space, the `:spaceId` for account-level bundles (§ Bundles → Tech-space
-bundles); it never appears in `GET /v1/spaces`.
+bundles); it never appears in `GET /v1/spaces`. `deletion` is the
+account's deletion state on the network (**Deletion** below).
 
 ```json
 // PUT /v1/account/metadata
@@ -600,6 +607,63 @@ The network accounts the pool on its own schedule: a new grant or a
 finished backup shows some minutes later. A file the pool has no room
 for stays `limited` (docs/17-files.md § Durability states) until the
 pool grows or files are deleted.
+
+**Deletion.** `POST /v1/account/deletion` (`Account.RequestDeletion`)
+asks the network to delete the account, and
+`DELETE /v1/account/deletion` (`Account.RevertDeletion`) cancels the
+request while it is pending. Both answer the deletion state, which
+`GET /v1/account` carries as `deletion`:
+
+```jsonc
+{
+  "state":     "pending",               // active | pending | deleted
+  "deleteAt":  "2026-09-19T17:06:40Z",  // when the network deletes the data; only while pending
+  "fetchedAt": "2026-08-20T17:06:40Z"   // when the network gave this answer
+}
+```
+
+- A request moves every space the account owns to pending deletion
+  until `deleteAt`; the network sets the period. Spaces the account
+  only joined are not touched.
+- Nothing changes on the device, and the request does not sign out.
+  Local reads and writes keep working. Until a revert the network may
+  stop syncing the spaces the account owns: it refuses their ACL
+  changes (`409 acl.space_deleted`, § ACL operations) and does not
+  register a space the account creates meanwhile, and a sync node
+  refuses a pending space it has to load. After a revert a node may
+  take about a minute to serve such a space again.
+- After `deleteAt` the network deletes the data and the state reads
+  `deleted`. The server then offloads those spaces on every device
+  that holds them, members' devices included. The account's derived
+  spaces and its tech space stay on a device until the host removes
+  the account dir.
+- The state is the network's last answer, kept on the device. The
+  server reads it at boot, every five minutes, and on a request or a
+  revert, so `GET /v1/account` never waits for the network and serves
+  the state offline. `deletion` is omitted while the network has never
+  answered on this device. A change publishes `account.deletion` on
+  the event bus (docs/21-events.md).
+- A login from a device that holds nothing of the account ends once a
+  sync node serves the account, and a node may refuse an account
+  whose deletion is pending. While the login waits, `GET /v1/auth`
+  reports the state as `login.deletion` and
+  `DELETE /v1/account/deletion` answers: the revert needs the account
+  key, not the account's data. A login that ends while the deletion
+  is pending opens the account with `deletion.state: "pending"`.
+- A managed server takes both writes only with the control token
+  (`403 control.forbidden`).
+
+Errors: `409 account.deletion_pending` (a request while one is
+pending), `409 account.deletion_not_pending` (a revert with none
+pending), `409 account.deleted` (either, once the network has deleted
+the data), `409 account.not_on_network` (either, for an account the
+network has never registered: it holds nothing of it),
+`503 account.network_unavailable` (the network did not complete the
+call; the server answers within about a minute, so give the request a
+longer timeout; the network may still have taken the call, so read the
+state before retrying: `deletion` on `GET /v1/account`, or `login.deletion`
+while a login waits), `503 server.unavailable` (a revert during a
+waiting login that ended mid-call; retry).
 
 ### Identities (account-global directory)
 
@@ -4812,7 +4876,10 @@ unknown permission string is `400 request.schema`. SDK refusals map to
 `409 acl.limit_reached` (the owner's plan is at its limit of readers or
 writers for the space, or of shared spaces). A join request counts
 against neither limit: the space takes it, and the refusal comes when
-the owner accepts.
+the owner accepts. Every ACL write — these routes, the invite and
+guest-key writes, and `POST /v1/spaces/join` with a member invite —
+answers `409 acl.space_deleted` while the network holds the space as
+deleted or in pending deletion (§ Account → Deletion).
 
 `cancel-join` is the one ACL op that never resolves the space: a
 pending join is never materialized, so the server posts the withdrawal

@@ -68,8 +68,9 @@ arrives over `POST /v1/auth` on every boot, the device key is cached
 per account), and prints its control token as the second stdout line
 (`CONTROL_TOKEN <hex>`). Driving one from the CLI needs that token —
 `--control-token` / `ANY_CONTROL_TOKEN` — on `auth login`, `auth
-logout` and `auth login --replace` (switch to another account in
-place). A standalone server refuses `auth logout` and `--replace`.
+logout`, `auth login --replace` (switch to another account in
+place), `account delete` and `account revert-deletion`. A standalone
+server refuses `auth logout` and `--replace`.
 
 Prefer `ANY_CONTROL_TOKEN` over `--control-token`: a flag value is
 visible in the process list, and it never appears in `--help` output
@@ -97,7 +98,13 @@ any account icon [-o PATH]                          # GET /v1/account/icon (byte
 any account delete-icon                             # DELETE /v1/account/icon
 any account redeem <code>                           # POST /v1/account/access-code
 any account limits                                  # GET /v1/account/limits
+any account delete --yes                            # POST /v1/account/deletion (deletes the account from the network)
+any account revert-deletion                         # DELETE /v1/account/deletion
 ```
+
+`delete` and `revert-deletion` wait for the reply 75 seconds, or
+`--timeout` when that is longer: the server answers within about a
+minute.
 
 ### Identities (account-global directory)
 

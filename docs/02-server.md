@@ -59,11 +59,11 @@ string: `GET /v1/auth` reports the operations the server accepts as
 `capabilities` bits (`03-api.md` § Auth).
 
 **Control token.** A managed server accepts `POST`/`DELETE /v1/auth`,
-`DELETE /v1/auth/login`, `POST /v1/shutdown` and
-`PUT /v1/local-discovery` only with the
-`X-Any-Control-Token` header —
-otherwise any same-user process on the loopback could log it into a
-different account or stop it. A CLI-spawned managed server mints the
+`DELETE /v1/auth/login`, `POST /v1/shutdown`, `PUT /v1/local-discovery`
+and `POST`/`DELETE /v1/account/deletion` only with the
+`X-Any-Control-Token` header — otherwise any same-user process on the
+loopback could log it into a different account, stop it, or delete
+the account from the network. A CLI-spawned managed server mints the
 token and prints it as the second line of the stdout handshake
 (`CONTROL_TOKEN <hex>`, right after `LISTENING`); only the spawning
 parent owns that pipe. An in-process host passes its own through
@@ -158,10 +158,11 @@ account is standalone-only — a managed login with its phrase lands in
    account (`any init --mnemonic`, `POST /v1/auth {mnemonic}`) writes
    `login.json` as `pending` in the account dir before the keys exist.
    The engine then boots but stays closed: `GET /v1/auth` reads
-   `authorized: false` with a `login` object, every guarded route
-   answers `503 auth.login_pending`, and the device registration, push
-   and the indexer are not started (the index is opened, and a local
-   embedder may fetch its model meanwhile). Once the account's tech space has
+   `authorized: false` with a `login` object, every guarded route but
+   `DELETE /v1/account/deletion` answers `503 auth.login_pending`, and
+   the device registration, push and the indexer are not started (the
+   index is opened, and a local embedder may fetch its model
+   meanwhile). Once the account's tech space has
    synced from a sync node or from another device of the account
    reached directly, `login.json` says `complete` and the engine
    opens, in that order: an account never opens while the file reads

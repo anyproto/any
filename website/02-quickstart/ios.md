@@ -117,7 +117,7 @@ let (data, _) = try await URLSession.shared.data(for: req)
 
 Until an account is booted, every route except `/v1/health`, `/v1/shutdown`, `/v1/openapi.json`, `/v1/auth` returns `401 auth.required` ([Accounts](../auth/accounts.html)).
 
-A created account is open when the call returns, with no network. A login on a device that holds nothing of the account is not: the reply carries `login`, and the routes answer `503 auth.login_pending` until the account has synced once from the network or from another device of the account. Show a "waiting for sync" screen and poll `GET /v1/auth` until `authorized` is true; the wait survives an app restart. Later launches of an account that has synced open at once, offline too.
+A created account is open when the call returns, with no network. A login on a device that holds nothing of the account is not: the reply carries `login`, and the routes but the [revert of a pending deletion](../auth/accounts.html#deleting-the-account-from-the-network) answer `503 auth.login_pending` until the account has synced once from the network or from another device of the account. Show a "waiting for sync" screen and poll `GET /v1/auth` until `authorized` is true; the wait survives an app restart. Later launches of an account that has synced open at once, offline too.
 
 ## Then it is just HTTP
 

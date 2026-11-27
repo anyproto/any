@@ -44,7 +44,7 @@ Creating an account and logging in to one are different paths.
 **Log in** (`any init --mnemonic`, `POST /v1/auth {"mnemonic": …}` on a device that holds nothing of the account) means the account exists elsewhere, so the server keeps it closed until its list of spaces has synced once — from a sync node, or from another device of the account reached directly. Until then:
 
 - `GET /v1/auth` reads `authorized: false` and carries a `login` object naming the account and what it can sync from; `GET /v1/health` carries it too.
-- every other route answers `503 auth.login_pending`.
+- every other route answers `503 auth.login_pending`, except the [revert of a pending deletion](#deleting-the-account-from-the-network).
 - nothing works on the account yet: no device registration, no push subscription, no indexing.
 
 ```json
@@ -153,6 +153,59 @@ If the engine fails to boot after this call created the account dir, the half-cr
 | 500 | `auth.network_pin_corrupt` | the account's `network.json` is unreadable; it is never rewritten from config — remove it and start on the account's network |
 | 500 | `sdk.store_corrupt` | the account's SDK store `sdk.db` has a broken header or a page that fails its checksum while opening (in the quick check on a dirty open or a later read); it is never repaired in place — remove `sdk.db` and the files named after it from the account's `sdk/` dir and boot again: the SDK replays the synced trees into a fresh one; what lived only in `sdk.db` is lost: the local store, local-scope values and the files bookkeeping (durable files download again, files not yet durable are gone) |
 | 507 | `storage.no_space` | the device has no disk space left — the account dir, the device key or a store could not be written; free space and retry |
+
+## Deleting the account from the network
+
+`POST /v1/account/deletion` asks the any-sync coordinator to delete the account. The coordinator moves every space the account owns into pending deletion and answers the date it deletes them. The network sets the period.
+
+```bash
+curl -s -X POST http://127.0.0.1:2046/v1/account/deletion      # any account delete --yes
+```
+
+```json
+{ "state": "pending",
+  "deleteAt": "2026-09-19T17:06:40Z",
+  "fetchedAt": "2026-08-20T17:06:40Z" }
+```
+
+The request changes nothing on the device and does not sign out. Local reads and writes keep working. While the deletion is pending, sync of the spaces the account owns is not guaranteed: the coordinator refuses their ACL changes (`409 acl.space_deleted`) and the registration of new spaces, and a sync node refuses a pending space it has to load. A space a node already holds in memory keeps syncing. Spaces the account only joined are not touched.
+
+`DELETE /v1/account/deletion` cancels the request while it is pending. A space a node had refused, or one created meanwhile, syncs again within about a minute:
+
+```bash
+curl -s -X DELETE http://127.0.0.1:2046/v1/account/deletion    # any account revert-deletion
+```
+
+```json
+{ "state": "active", "fetchedAt": "2026-08-21T09:12:03Z" }
+```
+
+After `deleteAt` the coordinator deletes the spaces and the state reads `deleted`. The server then offloads them on every device that still holds them, the devices of other members included. The account's derived spaces and its tech space stay on a device until the host removes the account dir.
+
+`GET /v1/account` carries the state as `deletion`. It is the coordinator's last answer, stored in the device's database: the server reads it at boot, every five minutes, and on a request or a revert. So the route answers offline and never waits for the network. `deletion` is missing while the coordinator has never answered on this device. A change, from this device or another one of the account, publishes a device-scope `account.deletion` [event](../realtime/event-bus.html).
+
+A device that kept only the account key can still cancel the deletion. Its [login](#create-or-log-in) ends once a sync node serves the account's tech space, and a node may refuse an account whose deletion is pending. So the device reads the state in one of two places:
+
+- **The login waits.** `GET /v1/auth` reports the state as `login.deletion`, and `DELETE /v1/account/deletion` answers during the wait: the revert needs the account key and the coordinator, not the account's data. After the revert the login ends on its own.
+- **The login ends.** The account opens and `GET /v1/account` carries `deletion.state: "pending"`.
+
+```bash
+any auth login --mnemonic-stdin < phrase.txt
+curl -s http://127.0.0.1:2046/v1/auth           # waiting: "login": { …, "deletion": { "state": "pending", … } }
+any account revert-deletion                     # 200 { "state": "active", … }, waiting or open
+curl -s http://127.0.0.1:2046/v1/auth           # "authorized": true once the tech space has synced
+```
+
+| Status | Code | When |
+|---|---|---|
+| 403 | `control.forbidden` | a managed server, without the control token |
+| 409 | `account.deletion_pending` | a request while one is pending |
+| 409 | `account.deletion_not_pending` | a revert with none pending |
+| 409 | `account.deleted` | either, once the network has deleted the data |
+| 409 | `account.not_on_network` | either, for an account the coordinator has never registered |
+| 503 | `account.network_unavailable` | the coordinator did not complete the call; the server answers within about a minute. The coordinator may still have taken the call, so read the state before retrying: `deletion` on `GET /v1/account`, or `login.deletion` while a login waits |
+
+> **Why it matters.** On a hosted backend "delete my account" removes rows the provider holds. Here the data lives on the account's devices and, encrypted, on the sync nodes. The request reaches only the network: the account dir on a device stays until its host removes it.
 
 ## One server, one account
 

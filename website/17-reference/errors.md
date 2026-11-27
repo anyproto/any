@@ -88,6 +88,11 @@ Panics are converted to `500 internal` with a generic message.
 | `account.icon_not_found` | 404 | `GET /v1/account/icon` with no avatar set |
 | `account.icon_too_large` | 413 | the avatar upload is over 1 MiB |
 | `account.icon_not_image` | 415 | the avatar upload is not a PNG, JPEG, GIF, WebP, AVIF, HEIC, HEIF, BMP, ICO, TIFF or JXL image by signature (SVG refused) |
+| `account.deletion_pending` | 409 | `POST /v1/account/deletion` while a deletion is already pending |
+| `account.deletion_not_pending` | 409 | `DELETE /v1/account/deletion` with no deletion pending |
+| `account.deleted` | 409 | a deletion request or revert once the network has deleted the account's data |
+| `account.not_on_network` | 409 | a deletion request or revert for an account the network has never registered |
+| `account.network_unavailable` | 503 | the network did not complete a deletion request or revert |
 | `access.disabled` | 409 | `POST /v1/account/access-code` with no `access.redeemUrl` configured |
 | `access.request_rejected` | 400 | the invite service refused the request (`details.code`) |
 | `access.signature_rejected` | 401 | the invite service could not verify this account's signature |
@@ -116,6 +121,7 @@ Panics are converted to `500 internal` with a generic message.
 | `acl.forbidden` | 403 | the caller's role does not allow this ACL operation (minting an invite is owner-only) |
 | `acl.limit_reached` | 409 | the coordinator refuses for the space owner's plan: shared spaces on the first share of a space (invite create, guest key, direct add), or the space's readers or writers (accept, change permissions, direct add, guest key) |
 | `acl.record_not_found` | 404 | the ACL record named (a join request) does not exist |
+| `acl.space_deleted` | 409 | the network refuses an ACL change for a space it holds as deleted or in pending deletion: its owner [requested the deletion of their account](../auth/accounts.html#deleting-the-account-from-the-network), or the space is deleted on the network |
 | `invite.invalid` | 400 | invite token malformed or not decodable as an invite |
 | `invite.not_found` | 404 | unknown invite record |
 | `invite.duplicate` | 409 | an invite already exists for this space |

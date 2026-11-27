@@ -996,7 +996,8 @@ auth UI may offer. These rules are normative for every client:
    Logging in to an existing account on a device that holds nothing of
    it does not open until the account has synced once: the reply and
    `GET /v1/auth` carry `login`, `authorized` stays false, and guarded
-   routes answer `503 auth.login_pending`. Show a "waiting for sync"
+   routes but `DELETE /v1/account/deletion` answer
+   `503 auth.login_pending`. Show a "waiting for sync"
    screen driven by `login.sync` and the peer counts — `offline` means
    nothing to sync from is connected — poll `GET /v1/auth` until
    `authorized`, and offer a cancel: `DELETE /v1/auth/login`, called

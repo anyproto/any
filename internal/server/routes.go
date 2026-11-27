@@ -184,6 +184,12 @@ func buildEcho(d *deps) *echo.Echo {
 				return next(c)
 			}
 			if d.login.Load() != nil {
+				// The one account route a waiting login serves: a node
+				// may refuse an account whose deletion is pending, and
+				// then the login cannot end before the revert.
+				if c.Path() == "/v1/account/deletion" && c.Request().Method == http.MethodDelete {
+					return d.accountDeletionRevertWaiting(c)
+				}
 				return writeError(c, http.StatusServiceUnavailable, "auth.login_pending",
 					"the account is logging in: the server waits for its first sync from a sync node or another device of the account — poll GET /v1/auth", nil)
 			}

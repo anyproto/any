@@ -1,21 +1,40 @@
 package cli
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/anyproto/any/internal/api"
 )
 
+// deletionCallTimeout is the request timeout of a deletion request or
+// revert: --timeout, but never under the minute the server may take to
+// answer, so the server's answer is the one the caller reads.
+func deletionCallTimeout() time.Duration {
+	const serverWait = 75 * time.Second
+	return max(flags.Timeout, serverWait)
+}
+
 // `any account ...` — account-level operations that aren't scoped to
 // any single space. Mirrors sdk.Account() in the SDK.
 func newAccountCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "account",
-		Short: "account-level operations (profile, identity)",
+		Short: "the account (GET /v1/account) and account-level operations",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cl := newClient(flags.Timeout)
+			res, err := cl.Account(cmd.Context())
+			if err != nil {
+				return err
+			}
+			return printJSON(res)
+		},
 	}
 
 	var name, desc string
@@ -127,6 +146,46 @@ printed.`,
 		},
 	}
 
-	cmd.AddCommand(setMeta, setIcon, icon, deleteIcon, redeem, limits)
+	var yes bool
+	deleteAccount := &cobra.Command{
+		Use:   "delete",
+		Short: "request deletion of the account from the network (requires --yes)",
+		Long: `Sends POST /v1/account/deletion and prints the state with the date the
+network deletes the account's data. Until then the network may stop
+syncing the spaces the account owns; "any account revert-deletion"
+cancels the request while it is pending. Nothing changes on this device.
+Waits for the reply 75 seconds, or --timeout when that is longer.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !yes {
+				return fmt.Errorf("refusing to request the account's deletion without --yes")
+			}
+			cl := newClient(deletionCallTimeout())
+			res, err := cl.AccountRequestDeletion(cmd.Context())
+			if err != nil {
+				return err
+			}
+			return printJSON(res)
+		},
+	}
+	deleteAccount.Flags().BoolVar(&yes, "yes", false, "confirm the deletion request")
+
+	revertDeletion := &cobra.Command{
+		Use:   "revert-deletion",
+		Short: "cancel a pending deletion of the account (DELETE /v1/account/deletion)",
+		Long: `Sends DELETE /v1/account/deletion and prints the state. Waits for the
+reply 75 seconds, or --timeout when that is longer.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cl := newClient(deletionCallTimeout())
+			res, err := cl.AccountRevertDeletion(cmd.Context())
+			if err != nil {
+				return err
+			}
+			return printJSON(res)
+		},
+	}
+
+	cmd.AddCommand(setMeta, setIcon, icon, deleteIcon, redeem, limits, deleteAccount, revertDeletion)
 	return cmd
 }
