@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -77,7 +78,7 @@ func (d *deps) accountDeletionRequest(c echo.Context) error {
 // accountDeletionRevert handles DELETE /v1/account/deletion.
 //
 //	@Summary		Revert a pending deletion of the account
-//	@Description	Cancels a pending deletion: the account's spaces return to active and the network syncs them again. A managed server requires the control token.
+//	@Description	Cancels a pending deletion: the account's spaces return to active and the network syncs them again. Also answers while a login waits for its first sync: the nodes refuse an account whose deletion is pending, so that login ends only after the revert. A managed server requires the control token.
 //	@Tags			account
 //	@Produce		json
 //	@Success		200	{object}	api.AccountDeletion
@@ -94,6 +95,45 @@ func (d *deps) accountDeletionRevert(c echo.Context) error {
 		return accountDeletionError(c, err)
 	}
 	return c.JSON(http.StatusOK, accountDeletionToAPI(&st))
+}
+
+// accountDeletionRevertWaiting serves DELETE /v1/account/deletion for a
+// login that waits for its first sync: the revert needs the account key
+// and the network, not the account's data. The call runs as a goroutine
+// of the waiting engine, so a teardown cancels and joins it.
+func (d *deps) accountDeletionRevertWaiting(c echo.Context) error {
+	if !d.requireControl(c) {
+		return nil
+	}
+	type result struct {
+		st  space.AccountDeletion
+		err error
+	}
+	res := make(chan result, 1)
+	// Under openMu: a teardown clears the wait there before it joins
+	// the engine's goroutines and closes the SDK.
+	d.openMu.Lock()
+	w := d.login.Load()
+	if w != nil {
+		w.eng.spawn(func(ctx context.Context) {
+			st, err := w.sdk.Account().RevertDeletion(ctx)
+			res <- result{st, err}
+		})
+	}
+	d.openMu.Unlock()
+	if w == nil {
+		return writeError(c, http.StatusServiceUnavailable, "server.unavailable",
+			"the login ended during the call — retry", nil)
+	}
+	select {
+	case r := <-res:
+		if r.err != nil {
+			return accountDeletionError(c, r.err)
+		}
+		return c.JSON(http.StatusOK, accountDeletionToAPI(&r.st))
+	case <-c.Request().Context().Done():
+		return writeError(c, http.StatusServiceUnavailable, "server.unavailable", "request cancelled", nil)
+	}
 }
 
 // accountDeletionToAPI is the SDK's deletion state on the wire; nil

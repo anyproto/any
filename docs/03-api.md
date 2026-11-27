@@ -428,8 +428,9 @@ open, so the server removes nothing and the login keeps waiting. A removal that 
 holds the dir) ends the login and leaves a dir that still reads as a
 waiting login, never as an open account.
 
-Errors: `503 auth.login_pending` (on every guarded route while a login
-waits for the account's first sync; `GET /v1/auth` reports the wait),
+Errors: `503 auth.login_pending` (on every guarded route but
+`DELETE /v1/account/deletion` while a login waits for the account's
+first sync; `GET /v1/auth` reports the wait),
 `400 auth.bad_mnemonic` (BIP-39 validation),
 `400 request.invalid_field` (mnemonic+accountId together, index
 without mnemonic, `replace` without a credential, `accountId` on a
@@ -638,7 +639,10 @@ request while it is pending. Both answer the deletion state, which
   the event bus (docs/21-events.md).
 - The sync nodes refuse an account whose deletion is pending, so a
   login to it from a device that holds nothing of it waits.
-  `GET /v1/auth` reports the state as `login.deletion`.
+  `GET /v1/auth` reports the state as `login.deletion`, and
+  `DELETE /v1/account/deletion` answers during that wait: the revert
+  needs the account key, not the account's data. After it the login
+  ends on its own, once a node has served the account.
 - A managed server takes both writes only with the control token
   (`403 control.forbidden`).
 

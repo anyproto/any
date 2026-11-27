@@ -184,7 +184,14 @@ After `deleteAt` the coordinator deletes the spaces and the state reads `deleted
 
 `GET /v1/account` carries the state as `deletion`. It is the coordinator's last answer, stored in the device's database: the server reads it at boot, every five minutes, and on a request or a revert. So the route answers offline and never waits for the network. `deletion` is missing while the coordinator has never answered on this device. A change, from this device or another one of the account, publishes a device-scope `account.deletion` [event](../realtime/event-bus.html).
 
-The sync nodes refuse an account whose deletion is pending, so a [login](#create-or-log-in) from a device that holds nothing of it waits. `GET /v1/auth` reports the state as `login.deletion`.
+The sync nodes refuse an account whose deletion is pending, so a [login](#create-or-log-in) from a device that holds nothing of it waits. `GET /v1/auth` reports the state as `login.deletion`, and `DELETE /v1/account/deletion` answers during that wait: the revert needs the account key and the coordinator, not the account's data. So a device that kept only the key can still cancel the deletion. After the revert the login ends on its own, once a node has served the account's tech space:
+
+```bash
+any auth login --mnemonic-stdin < phrase.txt    # the login waits: the nodes refuse the account
+curl -s http://127.0.0.1:2046/v1/auth           # "login": { …, "deletion": { "state": "pending", … } }
+any account revert-deletion                     # 200 { "state": "active", … }
+curl -s http://127.0.0.1:2046/v1/auth           # "authorized": true once the tech space has synced
+```
 
 | Status | Code | When |
 |---|---|---|

@@ -140,7 +140,7 @@ const docTemplate = `{
                 "type": "object"
             },
             "api.AccountDeletion": {
-                "description": "Deletion is the account's deletion state on the network; omitted\nwhile the network has never answered on this device. The sync\nnodes refuse an account that is pending or deleted, so its login\ncan end only through a direct peer.",
+                "description": "Deletion is the account's deletion state on the network; omitted\nwhile the network has never answered on this device. The sync\nnodes refuse an account whose deletion is pending: its login\nends after DELETE /v1/account/deletion, which a waiting login\nserves.",
                 "properties": {
                     "deleteAt": {
                         "description": "DeleteAt is when the network deletes the account's data. Set\nwhile state is pending.",
@@ -4676,7 +4676,7 @@ const docTemplate = `{
         },
         "/account/deletion": {
             "delete": {
-                "description": "Cancels a pending deletion: the account's spaces return to active and the network syncs them again. A managed server requires the control token.",
+                "description": "Cancels a pending deletion: the account's spaces return to active and the network syncs them again. Also answers while a login waits for its first sync: the nodes refuse an account whose deletion is pending, so that login ends only after the revert. A managed server requires the control token.",
                 "responses": {
                     "200": {
                         "content": {

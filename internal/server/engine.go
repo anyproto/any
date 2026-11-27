@@ -693,12 +693,15 @@ func (d *deps) discardLogin(lg logger.CtxLogger) error {
 type loginWait struct {
 	// sdk is the waiting engine's SDK, for the local-discovery switch:
 	// a direct peer is one of the two ways the wait ends.
-	sdk  *anysyncsdk.SDK
+	sdk *anysyncsdk.SDK
+	// eng is the waiting engine, for the deletion revert: its call runs
+	// as one of the engine's goroutines.
+	eng  *engine
 	sync atomic.Pointer[api.LoginState]
 }
 
 func newLoginWait(eng *engine) *loginWait {
-	w := &loginWait{sdk: eng.sdk}
+	w := &loginWait{sdk: eng.sdk, eng: eng}
 	w.sync.Store(&api.LoginState{AccountId: eng.account, Sync: space.SyncStateUnknown.String()})
 	return w
 }

@@ -1,13 +1,16 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
+	anysyncsdk "github.com/anyproto/any-sync-sdk"
 	"github.com/anyproto/any-sync-sdk/space"
 	"github.com/anyproto/any-sync/app/logger"
 
@@ -210,5 +213,125 @@ func TestAccount_DeletionBusBridge(t *testing.T) {
 	d.accountDeletionFor(d.eng)(space.AccountDeletion{State: space.AccountDeletionPending, DeleteAt: deleteAt, FetchedAt: time.Now().UTC()})
 	if ev := awaitDeletionEvent(t, ch, "pending"); ev.DeleteAt == nil || !ev.DeleteAt.Equal(deleteAt) {
 		t.Errorf("event = %+v, want the date %s", ev, deleteAt)
+	}
+}
+
+// TestServer_AccountDeletion_RevertFromWaitingLogin: a device that holds
+// only the key of an account whose deletion is pending logs in, reads
+// the state on the waiting login, and reverts the deletion from there.
+// Nothing else of the account answers until the login ends.
+func TestServer_AccountDeletion_RevertFromWaitingLogin(t *testing.T) {
+	if _, err := os.ReadFile(stagingPath); err != nil {
+		t.Skipf("staging config not available: %v", err)
+	}
+	// The device that requests the deletion, then goes away: nothing of
+	// the account stays reachable but the network.
+	first := newUnauthorizedDeps(t)
+	e1 := buildEcho(first)
+	created := postAuth(t, e1, `{}`)
+	if created.Mnemonic == "" {
+		t.Fatalf("create reply carries no phrase: %+v", created)
+	}
+	var rec *httptest.ResponseRecorder
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(time.Second) {
+		rec = doJSON(t, e1, http.MethodPost, "/v1/account/deletion", "")
+		if rec.Code == http.StatusOK {
+			break
+		}
+		code := errCode(t, rec.Body.Bytes())
+		if (code != api.ErrAccountNotOnNetwork && code != api.ErrAccountNetworkUnavailable) || time.Now().After(deadline) {
+			t.Fatalf("POST /v1/account/deletion: %d %s", rec.Code, rec.Body.String())
+		}
+	}
+	pending := decodeAccountDeletion(t, rec)
+	first.teardownEngine(logger.NewNamed("test"), api.SubscribeClosedServerShutdown)
+
+	// The device that holds only the key. The first sync is held back,
+	// so the login waits whatever the nodes answer.
+	d := newUnauthorizedDeps(t)
+	synced := make(chan struct{})
+	d.firstSync = func(ctx context.Context, _ *anysyncsdk.SDK) error {
+		select {
+		case <-synced:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	e := buildEcho(d)
+	login := postAuth(t, e, `{"mnemonic":`+strconv.Quote(created.Mnemonic)+`}`)
+	if login.AccountId != created.AccountId || login.Login == nil {
+		t.Fatalf("login reply: %+v", login)
+	}
+	loginDeletion := func(state string) *api.AccountDeletion {
+		t.Helper()
+		for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(100 * time.Millisecond) {
+			st := authStatusOf(t, e)
+			if st.Login == nil {
+				t.Fatalf("the login ended: %+v", st)
+			}
+			if st.Login.Deletion != nil && st.Login.Deletion.State == state {
+				return st.Login.Deletion
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("login.deletion = %+v, want state %q", st.Login.Deletion, state)
+			}
+		}
+	}
+	if got := loginDeletion("pending"); got.DeleteAt == nil || !got.DeleteAt.Equal(*pending.DeleteAt) {
+		t.Errorf("login.deletion = %+v, want the date %s", got, pending.DeleteAt)
+	}
+	for _, req := range [][2]string{{http.MethodGet, "/v1/account"}, {http.MethodPost, "/v1/account/deletion"}} {
+		rec = doJSON(t, e, req[0], req[1], "")
+		if rec.Code != http.StatusServiceUnavailable || errCode(t, rec.Body.Bytes()) != "auth.login_pending" {
+			t.Errorf("%s %s while the login waits: %d %s", req[0], req[1], rec.Code, rec.Body.String())
+		}
+	}
+
+	rec = doJSON(t, e, http.MethodDelete, "/v1/account/deletion", "")
+	if active := decodeAccountDeletion(t, rec); active.State != "active" || active.DeleteAt != nil {
+		t.Fatalf("revert from the waiting login = %s", rec.Body.String())
+	}
+	loginDeletion("active")
+	rec = doJSON(t, e, http.MethodDelete, "/v1/account/deletion", "")
+	if rec.Code != http.StatusConflict || errCode(t, rec.Body.Bytes()) != api.ErrAccountDeletionNotPending {
+		t.Fatalf("second revert: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// The login ends and the account reads the same state.
+	close(synced)
+	waitAuthorized(t, e, created.AccountId)
+	if account, body := getAccount(t, e); account.Deletion == nil || account.Deletion.State != "active" {
+		t.Fatalf("GET /v1/account after the login = %s", body)
+	}
+}
+
+// TestServer_AccountDeletion_WaitingLoginGate: the revert a waiting
+// login serves is gated like the open one — a managed server takes it
+// only with the control token — and it is the only write let through.
+func TestServer_AccountDeletion_WaitingLoginGate(t *testing.T) {
+	phrase, _ := otherMnemonic(t)
+	d, e := offlineDeps(t)
+	d.cfg.Mode = config.ModeManaged
+	d.controlToken = "tok"
+	token := map[string]string{api.ControlTokenHeader: "tok"}
+	if rec := doJSONH(t, e, http.MethodPost, "/v1/auth", `{"mnemonic":`+strconv.Quote(phrase)+`}`, token); rec.Code != http.StatusOK {
+		t.Fatalf("POST /v1/auth: %d %s", rec.Code, rec.Body.String())
+	}
+	if st := authStatusOf(t, e); st.Authorized || st.Login == nil {
+		t.Fatalf("auth status: %+v, want a waiting login", st)
+	}
+
+	rec := doJSON(t, e, http.MethodDelete, "/v1/account/deletion", "")
+	if rec.Code != http.StatusForbidden || errCode(t, rec.Body.Bytes()) != "control.forbidden" {
+		t.Errorf("revert without the token: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSONH(t, e, http.MethodDelete, "/v1/account/deletion", "", token)
+	if rec.Code != http.StatusServiceUnavailable || errCode(t, rec.Body.Bytes()) != api.ErrAccountNetworkUnavailable {
+		t.Errorf("revert with no network: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSONH(t, e, http.MethodPost, "/v1/account/deletion", "", token)
+	if rec.Code != http.StatusServiceUnavailable || errCode(t, rec.Body.Bytes()) != "auth.login_pending" {
+		t.Errorf("request while the login waits: %d %s", rec.Code, rec.Body.String())
 	}
 }
