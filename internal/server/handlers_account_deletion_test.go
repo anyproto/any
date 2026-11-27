@@ -360,6 +360,10 @@ func TestServer_AccountDeletion_ColdLogin(t *testing.T) {
 		}
 	}
 	pending := decodeAccountDeletion(t, rec)
+	// The second device can sync only what the first one has pushed.
+	syncCtx, cancelSync := context.WithTimeout(context.Background(), 30*time.Second)
+	_ = first.sdk.Spaces().WaitListSynced(syncCtx)
+	cancelSync()
 	first.teardownEngine(logger.NewNamed("test"), api.SubscribeClosedServerShutdown)
 
 	d := newUnauthorizedDeps(t)
@@ -386,10 +390,11 @@ func TestServer_AccountDeletion_ColdLogin(t *testing.T) {
 		t.Fatalf("deletion state on the device = %+v, want pending until %s", seen, pending.DeleteAt)
 	}
 
-	// The revert answers 503 only when the login ends under it.
+	// The revert answers at once, waiting or open. The one retry it
+	// may need is for a login that ends under the call.
 	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(200 * time.Millisecond) {
 		rec = doJSON(t, e, http.MethodDelete, "/v1/account/deletion", "")
-		if rec.Code != http.StatusServiceUnavailable || time.Now().After(deadline) {
+		if rec.Code != http.StatusServiceUnavailable || errCode(t, rec.Body.Bytes()) != "server.unavailable" || time.Now().After(deadline) {
 			break
 		}
 	}

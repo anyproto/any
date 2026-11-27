@@ -102,6 +102,10 @@ any account delete --yes                            # POST /v1/account/deletion 
 any account revert-deletion                         # DELETE /v1/account/deletion
 ```
 
+`delete` and `revert-deletion` wait for the reply 45 seconds, or
+`--timeout` when that is longer: the server waits for the network up
+to 30.
+
 ### Identities (account-global directory)
 
 ```

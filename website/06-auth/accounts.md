@@ -44,7 +44,7 @@ Creating an account and logging in to one are different paths.
 **Log in** (`any init --mnemonic`, `POST /v1/auth {"mnemonic": …}` on a device that holds nothing of the account) means the account exists elsewhere, so the server keeps it closed until its list of spaces has synced once — from a sync node, or from another device of the account reached directly. Until then:
 
 - `GET /v1/auth` reads `authorized: false` and carries a `login` object naming the account and what it can sync from; `GET /v1/health` carries it too.
-- every other route answers `503 auth.login_pending`.
+- every other route answers `503 auth.login_pending`, except the [revert of a pending deletion](#deleting-the-account-from-the-network).
 - nothing works on the account yet: no device registration, no push subscription, no indexing.
 
 ```json
@@ -203,7 +203,7 @@ curl -s http://127.0.0.1:2046/v1/auth           # "authorized": true once the te
 | 409 | `account.deletion_not_pending` | a revert with none pending |
 | 409 | `account.deleted` | either, once the network has deleted the data |
 | 409 | `account.not_on_network` | either, for an account the coordinator has never registered |
-| 503 | `account.network_unavailable` | the coordinator did not complete the call; the server waits for it up to thirty seconds |
+| 503 | `account.network_unavailable` | the coordinator did not complete the call within thirty seconds; it may still have taken it, so read `GET /v1/account` before retrying |
 
 > **Why it matters.** On a hosted backend "delete my account" removes rows the provider holds. Here the data lives on the account's devices and, encrypted, on the sync nodes. The request reaches only the network: the account dir on a device stays until its host removes it.
 

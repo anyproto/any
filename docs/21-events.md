@@ -316,8 +316,9 @@ interest on it). Approximate by design.
   (channel closed) rather than blocking the publisher. Construction-time
   taps observe every publish loss-free (the process registry is one).
   Created lazily via `deps.eventsHub()` — no engine/SDK dependency.
-  `any`-internal producers (the indexer's process updates and
-  `links.updated`, wired in `engine.go`) publish through it directly.
+  `any`-internal producers (the indexer's process updates,
+  `links.updated` and `account.deletion`, wired in `engine.go`) publish
+  through it directly.
 - `internal/server/handlers_events.go` — `eventsPublish` (strict bind →
   validate → stamp sender → route by scope through `publishScoped`) and
   `eventsSubscribe` (parse filters → acquire network interests → the

@@ -265,7 +265,8 @@ restart.
   closed until its space registry (the tech space) has synced once,
   from a sync node or from another device of the account reached
   directly. Until then `GET /v1/auth` reads `authorized: false` with a
-  `login` object, and every guarded route answers
+  `login` object, and every guarded route but
+  `DELETE /v1/account/deletion` (§ Account → Deletion) answers
   `503 auth.login_pending`. Nothing runs against the unsynced account:
   no device registration, no push subscription, no indexing. The call
   itself returns at once; poll `GET /v1/auth`. With no network the
@@ -656,8 +657,9 @@ the data), `409 account.not_on_network` (either, for an account the
 network has never registered: it holds nothing of it),
 `503 account.network_unavailable` (the network did not complete the
 call; the server waits for it up to thirty seconds, so give the
-request a longer timeout), `503 server.unavailable` (a revert during
-a waiting login that ended mid-call; retry).
+request a longer timeout; the network may still have taken the call,
+so read `GET /v1/account` before retrying), `503 server.unavailable`
+(a revert during a waiting login that ended mid-call; retry).
 
 ### Identities (account-global directory)
 
