@@ -112,6 +112,11 @@ identity.icon_not_found          # 404 — GET /v1/identities/:identity/icon: id
 account.icon_not_found           # 404 — GET /v1/account/icon with no avatar set
 account.icon_too_large           # 413 — PUT /v1/account/icon body over the 1 MiB avatar cap
 account.icon_not_image           # 415 — PUT /v1/account/icon whose bytes are not a PNG, JPEG, GIF, WebP, AVIF, HEIC, HEIF, BMP, ICO, TIFF or JXL image (by signature; SVG refused)
+account.deletion_pending         # 409 — POST /v1/account/deletion while a deletion is already pending
+account.deletion_not_pending     # 409 — DELETE /v1/account/deletion with no deletion pending
+account.deleted                  # 409 — POST or DELETE /v1/account/deletion once the network has deleted the account's data
+account.not_on_network           # 409 — POST or DELETE /v1/account/deletion for an account the network has never registered
+account.network_unavailable      # 503 — POST or DELETE /v1/account/deletion: the network did not complete the call
 
 bundle.not_found                 # 404 — no live install for the bundle id in this space (on DELETE …/bundles/:bundleId: no row for the id; a dead winner's row still gets its losers swept, 204)
 bundle.not_ready                 # 409 — the winner's tree (or the registry) has not reached this device yet, incl. a tree the SDK does not hold at all right after a join; retry

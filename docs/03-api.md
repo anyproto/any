@@ -315,7 +315,9 @@ a managed one allows.
 ```
 
 `login.sync: "offline"` means nothing the tech space could sync from is
-connected, so the wait cannot end yet. `GET /v1/health` carries the same
+connected, so the wait cannot end yet. `login.deletion` is the
+account's deletion state on the network (§ Account → Deletion), present
+once the network has answered. `GET /v1/health` carries the same
 `login` object, with an empty `account`.
 
 A managed server reports every capability `true` and an empty
@@ -480,12 +482,15 @@ full).
 | DELETE | `/v1/account/icon`           | `Account.DeleteIcon`                   |
 | POST   | `/v1/account/access-code`    | redeem an alpha invite code (any-invite) |
 | GET    | `/v1/account/limits`         | `Account.Limits` — storage pool, shared-spaces limit |
+| POST   | `/v1/account/deletion`       | `Account.RequestDeletion` — delete the account from the network |
+| DELETE | `/v1/account/deletion`       | `Account.RevertDeletion` — cancel a pending deletion |
 
-`GET /v1/account` → `{id, techSpaceId, metadata?}`. `metadata`
+`GET /v1/account` → `{id, techSpaceId, metadata?, deletion?}`. `metadata`
 (`{name?, description?, iconCid?}`) is the locally stored profile,
 omitted when none was written. `techSpaceId` is the account's tech
 space, the `:spaceId` for account-level bundles (§ Bundles → Tech-space
-bundles); it never appears in `GET /v1/spaces`.
+bundles); it never appears in `GET /v1/spaces`. `deletion` is the
+account's deletion state on the network (**Deletion** below).
 
 ```json
 // PUT /v1/account/metadata
@@ -600,6 +605,51 @@ The network accounts the pool on its own schedule: a new grant or a
 finished backup shows some minutes later. A file the pool has no room
 for stays `limited` (docs/17-files.md § Durability states) until the
 pool grows or files are deleted.
+
+**Deletion.** `POST /v1/account/deletion` (`Account.RequestDeletion`)
+asks the network to delete the account, and
+`DELETE /v1/account/deletion` (`Account.RevertDeletion`) cancels the
+request while it is pending. Both answer the deletion state, which
+`GET /v1/account` carries as `deletion`:
+
+```jsonc
+{
+  "state":     "pending",               // active | pending | deleted
+  "deleteAt":  "2026-09-19T17:06:40Z",  // when the network deletes the data; only while pending
+  "fetchedAt": "2026-08-20T17:06:40Z"   // when the network gave this answer
+}
+```
+
+- A request moves every space the account owns to pending deletion
+  until `deleteAt`; the network sets the period. Spaces the account
+  only joined are not touched.
+- Nothing changes on the device, and the request does not sign out.
+  While the deletion is pending the network does not sync the spaces
+  the account owns. Local reads and writes keep working, and a revert
+  restores sync.
+- After `deleteAt` the network deletes the data and the state reads
+  `deleted`. The server then offloads those spaces on every device
+  that holds them, members' devices included.
+- The state is the network's last answer, kept on the device. The
+  server reads it at boot, every five minutes, and on a request or a
+  revert, so `GET /v1/account` never waits for the network and serves
+  the state offline. `deletion` is omitted while the network has never
+  answered on this device. A change publishes `account.deletion` on
+  the event bus (docs/21-events.md).
+- The sync nodes refuse an account whose deletion is pending, so a
+  login to it from a device that holds nothing of it waits.
+  `GET /v1/auth` reports the state as `login.deletion`.
+- A managed server takes both writes only with the control token
+  (`403 control.forbidden`).
+
+Errors: `409 account.deletion_pending` (a request while one is
+pending), `409 account.deletion_not_pending` (a revert with none
+pending), `409 account.deleted` (either, once the network has deleted
+the data), `409 account.not_on_network` (either, for an account the
+network has never registered: it holds nothing of it),
+`503 account.network_unavailable` (the network did not complete the
+call; the server waits for it up to thirty seconds, so give the
+request a longer timeout).
 
 ### Identities (account-global directory)
 

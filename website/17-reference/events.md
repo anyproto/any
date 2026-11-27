@@ -133,6 +133,7 @@ Filters are repeatable query params — AND across dimensions, OR within one; `t
 | `ui.open_space` / `ui.open_object` | device | `{spaceId, objectId?, source?}` — navigation for a UI window |
 | `process.started` / `progress` / `done` / `failed` / `cancelled` / `cancel` | the process's scope | the process descriptor and counters, plus `embedding` on `index.embed` ([Processes](../notifications/processes.html)) |
 | `links.updated` | device | `{spaceId, targets, truncated?}` — canonical targets whose backlinks changed (≤ 200) |
+| `account.deletion` | device | `{state, deleteAt?, fetchedAt}` — the account's deletion state on the network changed |
 
 See [Event bus](../realtime/event-bus.html).
 

@@ -48,6 +48,11 @@ type LoginState struct {
 	NetworkPeers int `json:"networkPeers"`
 	LocalPeers   int `json:"localPeers"`
 	GlobalPeers  int `json:"globalPeers"`
+	// Deletion is the account's deletion state on the network; omitted
+	// while the network has never answered on this device. The sync
+	// nodes refuse an account that is pending or deleted, so its login
+	// can end only through a direct peer.
+	Deletion *AccountDeletion `json:"deletion,omitempty"`
 }
 
 // AuthStatusResponse is the GET /v1/auth reply.

@@ -101,3 +101,26 @@ func TestNoWeightFlag(t *testing.T) {
 	}
 	walk(newRootCmd())
 }
+
+// TestAccountCommands pins the account group: the read on the group
+// itself, and the deletion request with its confirmation flag.
+func TestAccountCommands(t *testing.T) {
+	root := newRootCmd()
+	for _, path := range []string{"account", "account limits", "account delete", "account revert-deletion"} {
+		cmd, rest, err := root.Find(strings.Fields(path))
+		if err != nil || len(rest) > 0 {
+			t.Errorf("find %q: %v, unmatched %v", path, err, rest)
+			continue
+		}
+		if cmd.RunE == nil {
+			t.Errorf("%q has no RunE", path)
+		}
+	}
+	cmd, _, _ := root.Find([]string{"account", "delete"})
+	if f := cmd.Flags().Lookup("yes"); f == nil || f.Value.Type() != "bool" {
+		t.Fatal("account delete has no --yes")
+	}
+	if err := cmd.RunE(cmd, nil); err == nil {
+		t.Error("account delete ran without --yes")
+	}
+}

@@ -58,6 +58,8 @@ any account icon [-o PATH]                                              # GET /v
 any account delete-icon                                                 # DELETE /v1/account/icon
 any account redeem <code>                                               # POST /v1/account/access-code
 any account limits                                                      # GET /v1/account/limits
+any account delete --yes                                                # POST /v1/account/deletion (deletes the account from the network)
+any account revert-deletion                                             # DELETE /v1/account/deletion
 
 any identities list | get <identity> | icon <identity> [-o PATH] | subscribe     # alias: any contacts
 

@@ -550,6 +550,10 @@ func (d *deps) openEngine(eng *engine) {
 	d.ready.Store(true)
 	d.login.Store(nil)
 	eng.spawn(func(context.Context) { d.holdProcessInterest(eng) })
+	if eng.sdk != nil {
+		// Ends with the SDK; frames past the teardown are dropped.
+		eng.sdk.Account().SubscribeDeletion(d.accountDeletionFor(eng))
+	}
 	d.openMu.Unlock()
 	// A statement that landed during the boot reached the booting
 	// engine through bootingSDK; one that lands between that pointer
@@ -712,12 +716,15 @@ func (d *deps) sampleLogin(ctx context.Context, eng *engine) {
 	defer t.Stop()
 	for {
 		st := eng.sdk.Spaces().Status(eng.sdk.TechSpaceId())
+		// The deletion state is read from the device: no network wait.
+		deletion, _ := eng.sdk.Account().Deletion(ctx)
 		w.sync.Store(&api.LoginState{
 			AccountId:    eng.account,
 			Sync:         st.State.String(),
 			NetworkPeers: st.NetworkPeers,
 			LocalPeers:   st.LocalPeers,
 			GlobalPeers:  st.GlobalPeers,
+			Deletion:     accountDeletionToAPI(deletion),
 		})
 		select {
 		case <-ctx.Done():
@@ -983,6 +990,27 @@ func (d *deps) indexerLinksFor(eng *engine) func(spaceId string, targets []strin
 		}
 		d.eventsHub().publish(api.Event{
 			Type:   api.EventLinksUpdated,
+			Scope:  api.EventScopeDevice,
+			Data:   payload,
+			Sender: &api.EventSender{Identity: eng.account, Self: true},
+		})
+	}
+}
+
+// accountDeletionFor bridges a change of the account's deletion state
+// onto the bus as a device-scope `account.deletion` event
+// (docs/21-events.md).
+func (d *deps) accountDeletionFor(eng *engine) func(space.AccountDeletion) {
+	return func(st space.AccountDeletion) {
+		if eng.done.Load() {
+			return
+		}
+		payload, err := json.Marshal(accountDeletionToAPI(&st))
+		if err != nil {
+			return
+		}
+		d.eventsHub().publish(api.Event{
+			Type:   api.EventAccountDeletion,
 			Scope:  api.EventScopeDevice,
 			Data:   payload,
 			Sender: &api.EventSender{Identity: eng.account, Self: true},

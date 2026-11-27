@@ -11,6 +11,30 @@ import (
 	"github.com/anyproto/any/internal/api"
 )
 
+// Account reads the account: id, tech space, profile and the deletion
+// state on the network. GET /v1/account.
+func (c *Client) Account(ctx context.Context) (api.AccountResponse, error) {
+	var out api.AccountResponse
+	err := c.do(ctx, http.MethodGet, "/v1/account", nil, &out)
+	return out, err
+}
+
+// AccountRequestDeletion asks the network to delete the account.
+// POST /v1/account/deletion.
+func (c *Client) AccountRequestDeletion(ctx context.Context) (api.AccountDeletion, error) {
+	var out api.AccountDeletion
+	err := c.do(ctx, http.MethodPost, "/v1/account/deletion", nil, &out)
+	return out, err
+}
+
+// AccountRevertDeletion cancels a pending deletion of the account.
+// DELETE /v1/account/deletion.
+func (c *Client) AccountRevertDeletion(ctx context.Context) (api.AccountDeletion, error) {
+	var out api.AccountDeletion
+	err := c.do(ctx, http.MethodDelete, "/v1/account/deletion", nil, &out)
+	return out, err
+}
+
 // AccountUpdateMetadata updates the caller's account profile across
 // every space they're a member of. PUT /v1/account/metadata.
 func (c *Client) AccountUpdateMetadata(ctx context.Context, meta api.AccountMetadata) error {

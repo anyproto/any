@@ -13,7 +13,50 @@ type AccountResponse struct {
 	// TechSpaceId is the account's tech space — the :spaceId for
 	// account-level bundles (see docs/03-api.md § Bundles).
 	TechSpaceId string `json:"techSpaceId"`
+	// Deletion is the account's deletion state on the network, as the
+	// network last gave it; omitted while it has never answered on
+	// this device.
+	Deletion *AccountDeletion `json:"deletion,omitempty"`
 }
+
+// AccountDeletion is the account's deletion state on the network: the
+// body of POST and DELETE /v1/account/deletion, a part of GET
+// /v1/account and of a waiting login, and the data of the
+// account.deletion event.
+type AccountDeletion struct {
+	// State: active — no deletion is requested; pending — requested
+	// and revertible until deleteAt; deleted — the network has deleted
+	// the account's data.
+	State string `json:"state" enums:"active,pending,deleted"`
+	// DeleteAt is when the network deletes the account's data. Set
+	// while state is pending.
+	DeleteAt *time.Time `json:"deleteAt,omitempty"`
+	// FetchedAt is when the network gave this answer.
+	FetchedAt time.Time `json:"fetchedAt"`
+}
+
+// EventAccountDeletion is the device-scope event published when the
+// account's deletion state changes: data is AccountDeletion.
+const EventAccountDeletion = "account.deletion"
+
+// Error code namespace for the account's deletion from the network.
+const (
+	// ErrAccountDeletionPending — a deletion request while one is
+	// already pending. 409.
+	ErrAccountDeletionPending = "account.deletion_pending"
+	// ErrAccountDeletionNotPending — a revert while no deletion is
+	// pending. 409.
+	ErrAccountDeletionNotPending = "account.deletion_not_pending"
+	// ErrAccountDeleted — a request or a revert once the network has
+	// deleted the account's data. 409.
+	ErrAccountDeleted = "account.deleted"
+	// ErrAccountNotOnNetwork — a request or a revert for an account
+	// the network has never registered. 409.
+	ErrAccountNotOnNetwork = "account.not_on_network"
+	// ErrAccountNetworkUnavailable — the network did not complete a
+	// request or a revert. 503.
+	ErrAccountNetworkUnavailable = "account.network_unavailable"
+)
 
 // AccountMetadata mirrors space.AccountMetadata. IconCID is the
 // avatar's content address, set by PUT /v1/account/icon and read-only

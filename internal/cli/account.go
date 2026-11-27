@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -15,7 +16,16 @@ import (
 func newAccountCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "account",
-		Short: "account-level operations (profile, identity)",
+		Short: "the account (GET /v1/account) and account-level operations",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cl := newClient(flags.Timeout)
+			res, err := cl.Account(cmd.Context())
+			if err != nil {
+				return err
+			}
+			return printJSON(res)
+		},
 	}
 
 	var name, desc string
@@ -127,6 +137,43 @@ printed.`,
 		},
 	}
 
-	cmd.AddCommand(setMeta, setIcon, icon, deleteIcon, redeem, limits)
+	var yes bool
+	deleteAccount := &cobra.Command{
+		Use:   "delete",
+		Short: "request deletion of the account from the network (requires --yes)",
+		Long: `Sends POST /v1/account/deletion and prints the state with the date the
+network deletes the account's data. Every space the account owns stops
+syncing until then; "any account revert-deletion" cancels the request
+while it is pending. Nothing changes on this device.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !yes {
+				return fmt.Errorf("refusing to request the account's deletion without --yes")
+			}
+			cl := newClient(0) // the server bounds the network call
+			res, err := cl.AccountRequestDeletion(cmd.Context())
+			if err != nil {
+				return err
+			}
+			return printJSON(res)
+		},
+	}
+	deleteAccount.Flags().BoolVar(&yes, "yes", false, "confirm the deletion request")
+
+	revertDeletion := &cobra.Command{
+		Use:   "revert-deletion",
+		Short: "cancel a pending deletion of the account (DELETE /v1/account/deletion)",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cl := newClient(0) // the server bounds the network call
+			res, err := cl.AccountRevertDeletion(cmd.Context())
+			if err != nil {
+				return err
+			}
+			return printJSON(res)
+		},
+	}
+
+	cmd.AddCommand(setMeta, setIcon, icon, deleteIcon, redeem, limits, deleteAccount, revertDeletion)
 	return cmd
 }

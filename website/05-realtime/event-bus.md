@@ -133,6 +133,7 @@ A persisted event log would replay its history to every reconnecting subscriber 
 | `ui.open_object` | device | `{spaceId, objectId, source?}` |
 | `process.started` / `progress` / `done` / `failed` / `cancelled` / `cancel` | any | the [process convention](../notifications/processes.html); envelope `target` is the process id |
 | `links.updated` | device | `{spaceId, targets, truncated?}` — canonical `any://` targets whose backlinks changed after the link index landed edges from `spaceId`; match on `targets`, re-read the backlinks. See [Links](../types/links.html) |
+| `account.deletion` | device | `{state, deleteAt?, fetchedAt}` — the account's [deletion state](../auth/accounts.html#deleting-the-account-from-the-network) on the network changed: a request, a revert, or the network deleting the data |
 | `editor.cursor` | space | presence; a **self-owned** type that maps into the pub/sub namespace only the sender's account can publish to, making it spoof-proof at publisher, relay and receiver |
 
 A UI window mounts one `EventSource('/v1/events/subscribe?scope=device&type=ui.*')` and dispatches into navigation; unknown `ui.*` types are ignored.

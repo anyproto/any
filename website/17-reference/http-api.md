@@ -60,13 +60,15 @@ curl -X POST http://127.0.0.1:2046/v1/auth -H 'Content-Type: application/json' -
 
 | Method | Path | Body/params | Returns | Notes |
 |---|---|---|---|---|
-| GET | `/v1/account` | — | `{id, metadata?, techSpaceId}` | |
+| GET | `/v1/account` | — | `{id, metadata?, techSpaceId, deletion?}` | `deletion` is the deletion state below, as the network last gave it; never waits for the network |
 | PUT | `/v1/account/metadata` | `{name?, description?}` | 204 | at least one field (`400 request.missing_field`), both replaced; `iconCid` is refused (`400 request.invalid_field`); the profile is encrypted — contacts see it only after a shared-space or 1-1 key exchange |
 | PUT | `/v1/account/icon` | raw raster-image body; `?name=` | `{name?, description?, iconCid}` | the avatar; type read from the bytes (`415 account.icon_not_image`), 1 MiB cap (`413 account.icon_too_large`), empty body `400 request.missing_field` |
 | GET | `/v1/account/icon` | — | image bytes (Range) | `404 account.icon_not_found`, `409 file.not_available` |
 | DELETE | `/v1/account/icon` | — | 204 | no-op without an avatar |
 | POST | `/v1/account/access-code` | `{code}` | `{status: accepted\|already_redeemed, redemptionId?}` | signs the code with the account key and relays it to the invite service at `access.redeemUrl`; `409 access.disabled` without one; refusals are `access.*` with the service's code in `details.code` |
 | GET | `/v1/account/limits` | — | `{storage?: {limitBytes, usageBytes, fetchedAt}, sharedSpaces?: {limit, fetchedAt}}` | what the network grants the account; waits for the network at most 5 s, and not at all while it is failing or slow; each part is the network's last answer (`fetchedAt`), omitted when it never answered on this device; never fails on an unreachable network |
+| POST | `/v1/account/deletion` | — | `{state: active\|pending\|deleted, deleteAt?, fetchedAt}` | asks the network to delete the account: every space it owns is pending until `deleteAt` and stops syncing; nothing changes on the device; managed: control token; `409 account.deletion_pending`, `409 account.deleted`, `409 account.not_on_network`, `503 account.network_unavailable` |
+| DELETE | `/v1/account/deletion` | — | `{state, deleteAt?, fetchedAt}` | reverts a pending deletion; managed: control token; `409 account.deletion_not_pending`, `409 account.deleted`, `409 account.not_on_network`, `503 account.network_unavailable` |
 | GET | `/v1/identities` | — | `{identities: [IdentityInfo]}` | account-global directory of every identity encountered; carries no rights |
 | GET | `/v1/identities/:identity` | — | `IdentityInfo` | `404 identity.not_found` |
 | GET | `/v1/identities/:identity/icon` | — | image bytes (Range) | the avatar the row's `iconCid` names, fetched by content address; `404 identity.icon_not_found`, `409 file.not_available` |

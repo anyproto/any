@@ -16,7 +16,8 @@ curl -s http://127.0.0.1:2046/v1/account
 ```json
 { "id": "A8g1…",
   "techSpaceId": "bafyrei…",
-  "metadata": { "name": "Alice", "description": "writer, reader", "iconCid": "bafy…" } }
+  "metadata": { "name": "Alice", "description": "writer, reader", "iconCid": "bafy…" },
+  "deletion": { "state": "active", "fetchedAt": "2026-08-20T17:06:40Z" } }
 ```
 
 | Field | Meaning |
@@ -24,6 +25,7 @@ curl -s http://127.0.0.1:2046/v1/account
 | `id` | the account identity — what other people put into ACL grants, mentions and one-to-one derivations |
 | `techSpaceId` | the account's private tech space — the `:spaceId` for account-level [bundles](../collaboration/bundles.html); it never appears in `GET /v1/spaces` |
 | `metadata` | the profile as stored locally; omitted when never set on this device |
+| `deletion` | the account's [deletion state](accounts.html#deleting-the-account-from-the-network) on the network; omitted while the network has never answered on this device |
 
 `id` is the value you exchange out of band — via a link, a QR code, or a shared space's member list — so that someone can [add you by identity](../collaboration/acl.html) or [open a direct chat](../collaboration/one-to-one.html) with you.
 

@@ -1,0 +1,214 @@
+package server
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"testing"
+	"time"
+
+	"github.com/anyproto/any-sync-sdk/space"
+	"github.com/anyproto/any-sync/app/logger"
+
+	"github.com/anyproto/any/internal/api"
+	"github.com/anyproto/any/internal/config"
+)
+
+func decodeAccountDeletion(t *testing.T, rec *httptest.ResponseRecorder) api.AccountDeletion {
+	t.Helper()
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var out api.AccountDeletion
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode: %v; body=%s", err, rec.Body.String())
+	}
+	return out
+}
+
+func getAccount(t *testing.T, e http.Handler) (api.AccountResponse, []byte) {
+	t.Helper()
+	rec := doJSON(t, e, http.MethodGet, "/v1/account", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /v1/account: %d %s", rec.Code, rec.Body.String())
+	}
+	var out api.AccountResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode: %v; body=%s", err, rec.Body.String())
+	}
+	return out, rec.Body.Bytes()
+}
+
+// awaitDeletionEvent reads the bus until an account.deletion event
+// carries state.
+func awaitDeletionEvent(t *testing.T, ch <-chan api.Event, state string) api.AccountDeletion {
+	t.Helper()
+	deadline := time.After(15 * time.Second)
+	for {
+		select {
+		case ev := <-ch:
+			if ev.Type != api.EventAccountDeletion || ev.Scope != api.EventScopeDevice || ev.Sender == nil || !ev.Sender.Self {
+				t.Fatalf("envelope = %+v", ev)
+			}
+			var data api.AccountDeletion
+			if err := json.Unmarshal(ev.Data, &data); err != nil {
+				t.Fatal(err)
+			}
+			if data.State == state {
+				return data
+			}
+		case <-deadline:
+			t.Fatalf("no account.deletion event with state %q", state)
+		}
+	}
+}
+
+// TestServer_AccountDeletion requests the account's deletion on the
+// network the tests boot on, reads it back, reverts it, and then
+// restarts the account with every node refusing the connection: the
+// state reads from the device and the writes answer that the network is
+// unavailable.
+func TestServer_AccountDeletion(t *testing.T) {
+	raw, err := os.ReadFile(stagingPath)
+	if err != nil {
+		t.Skipf("staging config not available: %v", err)
+	}
+	d := newUnauthorizedDeps(t)
+	e := buildEcho(d)
+	accountId := authorize(t, e, "")
+	subId, events := d.eventsHub().subscribe(eventFilter{types: []string{api.EventAccountDeletion}})
+	defer d.eventsHub().unsubscribe(subId)
+
+	// The network registers an account on its first push.
+	var rec *httptest.ResponseRecorder
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(time.Second) {
+		rec = doJSON(t, e, http.MethodPost, "/v1/account/deletion", "")
+		if rec.Code == http.StatusOK {
+			break
+		}
+		code := errCode(t, rec.Body.Bytes())
+		if (code != api.ErrAccountNotOnNetwork && code != api.ErrAccountNetworkUnavailable) || time.Now().After(deadline) {
+			t.Fatalf("POST /v1/account/deletion: %d %s", rec.Code, rec.Body.String())
+		}
+	}
+	pending := decodeAccountDeletion(t, rec)
+	if pending.State != "pending" || pending.DeleteAt == nil || !pending.DeleteAt.After(time.Now()) {
+		t.Fatalf("request = %s, want pending with a date ahead", rec.Body.String())
+	}
+	if age := time.Since(pending.FetchedAt); age < 0 || age > time.Minute {
+		t.Errorf("fetchedAt = %s, want a live answer", pending.FetchedAt)
+	}
+	// The wire names, read without the response type.
+	var wire map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &wire); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"state", "deleteAt", "fetchedAt"} {
+		if _, ok := wire[f]; !ok {
+			t.Errorf("%s missing in %s", f, rec.Body.String())
+		}
+	}
+	if len(wire) != 3 {
+		t.Errorf("request = %v, want exactly state, deleteAt, fetchedAt", wire)
+	}
+
+	if ev := awaitDeletionEvent(t, events, "pending"); ev.DeleteAt == nil || !ev.DeleteAt.Equal(*pending.DeleteAt) {
+		t.Errorf("event = %+v, want the date %s", ev, pending.DeleteAt)
+	}
+	account, body := getAccount(t, e)
+	if account.Deletion == nil || account.Deletion.State != "pending" ||
+		account.Deletion.DeleteAt == nil || !account.Deletion.DeleteAt.Equal(*pending.DeleteAt) {
+		t.Fatalf("GET /v1/account = %s, want the pending deletion", body)
+	}
+
+	rec = doJSON(t, e, http.MethodPost, "/v1/account/deletion", "")
+	if rec.Code != http.StatusConflict || errCode(t, rec.Body.Bytes()) != api.ErrAccountDeletionPending {
+		t.Fatalf("second request: %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec = doJSON(t, e, http.MethodDelete, "/v1/account/deletion", "")
+	if active := decodeAccountDeletion(t, rec); active.State != "active" || active.DeleteAt != nil {
+		t.Fatalf("revert = %s, want active with no date", rec.Body.String())
+	}
+	awaitDeletionEvent(t, events, "active")
+	if account, body = getAccount(t, e); account.Deletion == nil || account.Deletion.State != "active" || account.Deletion.DeleteAt != nil {
+		t.Fatalf("GET /v1/account after the revert = %s", body)
+	}
+	rec = doJSON(t, e, http.MethodDelete, "/v1/account/deletion", "")
+	if rec.Code != http.StatusConflict || errCode(t, rec.Body.Bytes()) != api.ErrAccountDeletionNotPending {
+		t.Fatalf("second revert: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Pending again, then the same account with the network cut off.
+	pending = decodeAccountDeletion(t, doJSON(t, e, http.MethodPost, "/v1/account/deletion", ""))
+	d.teardownEngine(logger.NewNamed("test"), api.SubscribeClosedServerShutdown)
+	forgetStoredNodeconf(t, config.AccountDir(d.root, accountId))
+	d.cfg.Network = config.Network{Nodeconf: editNodeconf(t, raw, func(conf map[string]any) {
+		nodes, _ := conf["nodes"].([]any)
+		for _, n := range nodes {
+			n.(map[string]any)["addresses"] = []any{"127.0.0.1:1"}
+		}
+	})}
+	authorize(t, e, accountId)
+
+	start := time.Now()
+	account, body = getAccount(t, e)
+	if took := time.Since(start); took > 3*time.Second {
+		t.Errorf("took %s: refused connections must not hold the reply", took)
+	}
+	if account.Deletion == nil || *account.Deletion.DeleteAt != *pending.DeleteAt ||
+		account.Deletion.State != "pending" || !account.Deletion.FetchedAt.Equal(pending.FetchedAt) {
+		t.Fatalf("offline GET /v1/account = %s, want the stored %+v", body, pending)
+	}
+	for _, method := range []string{http.MethodPost, http.MethodDelete} {
+		rec = doJSON(t, e, method, "/v1/account/deletion", "")
+		if rec.Code != http.StatusServiceUnavailable || errCode(t, rec.Body.Bytes()) != api.ErrAccountNetworkUnavailable {
+			t.Errorf("offline %s: %d %s", method, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+// TestServer_AccountDeletion_NoNetwork: a device that never reached a
+// network reports no deletion state, and a managed server takes the
+// writes only with the control token.
+func TestServer_AccountDeletion_NoNetwork(t *testing.T) {
+	d := newUnauthorizedDeps(t)
+	d.cfg.Network = config.Network{Nodeconf: string(config.NodeconfPlaceholder())}
+	d.cfg.Mode = config.ModeManaged
+	d.controlToken = "tok"
+	e := buildEcho(d)
+	token := map[string]string{api.ControlTokenHeader: "tok"}
+	if rec := doJSONH(t, e, http.MethodPost, "/v1/auth", `{}`, token); rec.Code != http.StatusOK {
+		t.Fatalf("POST /v1/auth: %d %s", rec.Code, rec.Body.String())
+	}
+
+	if account, body := getAccount(t, e); account.Deletion != nil {
+		t.Errorf("GET /v1/account = %s, want no deletion state", body)
+	}
+	for _, method := range []string{http.MethodPost, http.MethodDelete} {
+		rec := doJSON(t, e, method, "/v1/account/deletion", "")
+		if rec.Code != http.StatusForbidden || errCode(t, rec.Body.Bytes()) != "control.forbidden" {
+			t.Errorf("%s without the token: %d %s", method, rec.Code, rec.Body.String())
+		}
+		rec = doJSONH(t, e, method, "/v1/account/deletion", "", token)
+		if rec.Code != http.StatusServiceUnavailable || errCode(t, rec.Body.Bytes()) != api.ErrAccountNetworkUnavailable {
+			t.Errorf("%s with no network: %d %s", method, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+// TestAccount_DeletionBusBridge: the engine turns a change of the
+// deletion state into one device-scope account.deletion event.
+func TestAccount_DeletionBusBridge(t *testing.T) {
+	d, teardown := newTestDeps(t)
+	defer teardown()
+	id, ch := d.eventsHub().subscribe(eventFilter{types: []string{api.EventAccountDeletion}})
+	defer d.eventsHub().unsubscribe(id)
+
+	deleteAt := time.Now().Add(24 * time.Hour).UTC().Truncate(time.Second)
+	d.accountDeletionFor(d.eng)(space.AccountDeletion{State: space.AccountDeletionPending, DeleteAt: deleteAt, FetchedAt: time.Now().UTC()})
+	if ev := awaitDeletionEvent(t, ch, "pending"); ev.DeleteAt == nil || !ev.DeleteAt.Equal(deleteAt) {
+		t.Errorf("event = %+v, want the date %s", ev, deleteAt)
+	}
+}

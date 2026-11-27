@@ -154,6 +154,49 @@ If the engine fails to boot after this call created the account dir, the half-cr
 | 500 | `sdk.store_corrupt` | the account's SDK store `sdk.db` has a broken header or a page that fails its checksum while opening (in the quick check on a dirty open or a later read); it is never repaired in place — remove `sdk.db` and the files named after it from the account's `sdk/` dir and boot again: the SDK replays the synced trees into a fresh one; what lived only in `sdk.db` is lost: the local store, local-scope values and the files bookkeeping (durable files download again, files not yet durable are gone) |
 | 507 | `storage.no_space` | the device has no disk space left — the account dir, the device key or a store could not be written; free space and retry |
 
+## Deleting the account from the network
+
+`POST /v1/account/deletion` asks the any-sync coordinator to delete the account. The coordinator moves every space the account owns into pending deletion and answers the date it deletes them. The network sets the period.
+
+```bash
+curl -s -X POST http://127.0.0.1:2046/v1/account/deletion      # any account delete --yes
+```
+
+```json
+{ "state": "pending",
+  "deleteAt": "2026-09-19T17:06:40Z",
+  "fetchedAt": "2026-08-20T17:06:40Z" }
+```
+
+The request changes nothing on the device and does not sign out. While the deletion is pending the coordinator refuses the account's pushes and the sync nodes refuse its spaces, so the spaces the account owns stop syncing. Local reads and writes keep working. Spaces the account only joined are not touched.
+
+`DELETE /v1/account/deletion` cancels the request while it is pending, and the nodes serve the spaces again:
+
+```bash
+curl -s -X DELETE http://127.0.0.1:2046/v1/account/deletion    # any account revert-deletion
+```
+
+```json
+{ "state": "active", "fetchedAt": "2026-08-21T09:12:03Z" }
+```
+
+After `deleteAt` the coordinator deletes the spaces and the state reads `deleted`. The server then offloads them on every device that still holds them, the devices of other members included.
+
+`GET /v1/account` carries the state as `deletion`. It is the coordinator's last answer, stored in the device's database: the server reads it at boot, every five minutes, and on a request or a revert. So the route answers offline and never waits for the network. `deletion` is missing while the coordinator has never answered on this device. A change, from this device or another one of the account, publishes a device-scope `account.deletion` [event](../realtime/event-bus.html).
+
+The sync nodes refuse an account whose deletion is pending, so a [login](#create-or-log-in) from a device that holds nothing of it waits. `GET /v1/auth` reports the state as `login.deletion`.
+
+| Status | Code | When |
+|---|---|---|
+| 403 | `control.forbidden` | a managed server, without the control token |
+| 409 | `account.deletion_pending` | a request while one is pending |
+| 409 | `account.deletion_not_pending` | a revert with none pending |
+| 409 | `account.deleted` | either, once the network has deleted the data |
+| 409 | `account.not_on_network` | either, for an account the coordinator has never registered |
+| 503 | `account.network_unavailable` | the coordinator did not complete the call; the server waits for it up to thirty seconds |
+
+> **Why it matters.** On a hosted backend "delete my account" removes rows the provider holds. Here the data lives on the account's devices and, encrypted, on the sync nodes. The request reaches only the network: the account dir on a device stays until its host removes it.
+
 ## One server, one account
 
 A process serves one account at a time. A managed server's host switches in place (`replace`) or signs out (`DELETE /v1/auth`); a standalone server refuses both — stop it and start with `--account <id>`, or let `POST /v1/auth` pick on an unauthorized server. Two accounts at once means two `any run` processes on different ports; they may share one data-dir root because every account dir carries its own instance lock.

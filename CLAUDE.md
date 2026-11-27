@@ -211,7 +211,7 @@ Modes (`docs/02-server.md` § Modes):
 - `standalone` (default): the key is on disk; logout and HTTP shutdown
   are refused.
 - `managed`: the host supplies the key on every boot. `DELETE /v1/auth`,
-  account switch and `POST /v1/shutdown` require the
+  account switch, account deletion and `POST /v1/shutdown` require the
   `X-Any-Control-Token` header.
 
 Shutdown: every server stops on `SIGINT` / `SIGTERM`. `any stop` finds the

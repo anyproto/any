@@ -20,6 +20,8 @@ func registerAccountRoutes(g *echo.Group, d *deps) {
 	g.DELETE("/account/icon", d.accountIconDelete)
 	g.POST("/account/access-code", d.accountRedeemAccessCode)
 	g.GET("/account/limits", d.accountLimits)
+	g.POST("/account/deletion", d.accountDeletionRequest)
+	g.DELETE("/account/deletion", d.accountDeletionRevert)
 }
 
 // accountGet handles GET /v1/account.
@@ -40,7 +42,95 @@ func (d *deps) accountGet(c echo.Context) error {
 		m := accountMetadataToAPI(meta)
 		resp.Metadata = &m
 	}
+	deletion, err := d.sdk.Account().Deletion(c.Request().Context())
+	if err != nil {
+		return sdkOpError(c, err, nil)
+	}
+	resp.Deletion = accountDeletionToAPI(deletion)
 	return c.JSON(http.StatusOK, resp)
+}
+
+// accountDeletionRequest handles POST /v1/account/deletion.
+//
+// The request changes nothing on this device and does not sign out.
+//
+//	@Summary		Request deletion of the account from the network
+//	@Description	Asks the network to delete the account: every space the account owns enters pending deletion until deleteAt, and the network stops syncing them. Revertible with DELETE /v1/account/deletion until then. Nothing changes on the device. A managed server requires the control token.
+//	@Tags			account
+//	@Produce		json
+//	@Success		200	{object}	api.AccountDeletion
+//	@Failure		403	{object}	api.ErrorEnvelope
+//	@Failure		409	{object}	api.ErrorEnvelope
+//	@Failure		503	{object}	api.ErrorEnvelope
+//	@Router			/account/deletion [post]
+func (d *deps) accountDeletionRequest(c echo.Context) error {
+	if !d.requireControl(c) {
+		return nil
+	}
+	st, err := d.sdk.Account().RequestDeletion(c.Request().Context())
+	if err != nil {
+		return accountDeletionError(c, err)
+	}
+	return c.JSON(http.StatusOK, accountDeletionToAPI(&st))
+}
+
+// accountDeletionRevert handles DELETE /v1/account/deletion.
+//
+//	@Summary		Revert a pending deletion of the account
+//	@Description	Cancels a pending deletion: the account's spaces return to active and the network syncs them again. A managed server requires the control token.
+//	@Tags			account
+//	@Produce		json
+//	@Success		200	{object}	api.AccountDeletion
+//	@Failure		403	{object}	api.ErrorEnvelope
+//	@Failure		409	{object}	api.ErrorEnvelope
+//	@Failure		503	{object}	api.ErrorEnvelope
+//	@Router			/account/deletion [delete]
+func (d *deps) accountDeletionRevert(c echo.Context) error {
+	if !d.requireControl(c) {
+		return nil
+	}
+	st, err := d.sdk.Account().RevertDeletion(c.Request().Context())
+	if err != nil {
+		return accountDeletionError(c, err)
+	}
+	return c.JSON(http.StatusOK, accountDeletionToAPI(&st))
+}
+
+// accountDeletionToAPI is the SDK's deletion state on the wire; nil
+// while the network has never answered.
+func accountDeletionToAPI(st *space.AccountDeletion) *api.AccountDeletion {
+	if st == nil {
+		return nil
+	}
+	out := &api.AccountDeletion{State: st.State.String(), FetchedAt: st.FetchedAt}
+	if !st.DeleteAt.IsZero() {
+		deleteAt := st.DeleteAt
+		out.DeleteAt = &deleteAt
+	}
+	return out
+}
+
+// accountDeletionError maps the errors of a deletion request or revert
+// to the canonical envelope.
+func accountDeletionError(c echo.Context, err error) error {
+	switch {
+	case errors.Is(err, space.ErrAccountDeletionPending):
+		return writeError(c, http.StatusConflict, api.ErrAccountDeletionPending,
+			"the account's deletion is already pending — GET /v1/account reads its date, DELETE /v1/account/deletion reverts it", nil)
+	case errors.Is(err, space.ErrAccountDeletionNotPending):
+		return writeError(c, http.StatusConflict, api.ErrAccountDeletionNotPending,
+			"no deletion of the account is pending", nil)
+	case errors.Is(err, space.ErrAccountDeleted):
+		return writeError(c, http.StatusConflict, api.ErrAccountDeleted,
+			"the network has deleted the account's data", nil)
+	case errors.Is(err, space.ErrAccountNotOnNetwork):
+		return writeError(c, http.StatusConflict, api.ErrAccountNotOnNetwork,
+			"the network has never registered the account: it holds nothing of it", nil)
+	case errors.Is(err, space.ErrNetworkUnavailable):
+		return writeError(c, http.StatusServiceUnavailable, api.ErrAccountNetworkUnavailable,
+			"the network did not complete the call — nothing is known to have changed, retry later", nil)
+	}
+	return sdkOpError(c, err, nil)
 }
 
 // accountLimits handles GET /v1/account/limits.

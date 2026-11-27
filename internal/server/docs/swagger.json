@@ -132,6 +132,29 @@
                 },
                 "type": "object"
             },
+            "api.AccountDeletion": {
+                "description": "Deletion is the account's deletion state on the network; omitted\nwhile the network has never answered on this device. The sync\nnodes refuse an account that is pending or deleted, so its login\ncan end only through a direct peer.",
+                "properties": {
+                    "deleteAt": {
+                        "description": "DeleteAt is when the network deletes the account's data. Set\nwhile state is pending.",
+                        "type": "string"
+                    },
+                    "fetchedAt": {
+                        "description": "FetchedAt is when the network gave this answer.",
+                        "type": "string"
+                    },
+                    "state": {
+                        "description": "State: active — no deletion is requested; pending — requested\nand revertible until deleteAt; deleted — the network has deleted\nthe account's data.",
+                        "enum": [
+                            "active",
+                            "pending",
+                            "deleted"
+                        ],
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
             "api.AccountDiscoveryStatus": {
                 "description": "Account is the account-level discovery record (pkarr).",
                 "properties": {
@@ -198,6 +221,9 @@
             },
             "api.AccountResponse": {
                 "properties": {
+                    "deletion": {
+                        "$ref": "#/components/schemas/api.AccountDeletion"
+                    },
                     "id": {
                         "type": "string"
                     },
@@ -2670,6 +2696,9 @@
                         "description": "AccountId is the account being logged in.",
                         "type": "string"
                     },
+                    "deletion": {
+                        "$ref": "#/components/schemas/api.AccountDeletion"
+                    },
                     "globalPeers": {
                         "type": "integer"
                     },
@@ -4633,6 +4662,106 @@
                     }
                 },
                 "summary": "Redeem an alpha invite code",
+                "tags": [
+                    "account"
+                ]
+            }
+        },
+        "/account/deletion": {
+            "delete": {
+                "description": "Cancels a pending deletion: the account's spaces return to active and the network syncs them again. A managed server requires the control token.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.AccountDeletion"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Service Unavailable"
+                    }
+                },
+                "summary": "Revert a pending deletion of the account",
+                "tags": [
+                    "account"
+                ]
+            },
+            "post": {
+                "description": "Asks the network to delete the account: every space the account owns enters pending deletion until deleteAt, and the network stops syncing them. Revertible with DELETE /v1/account/deletion until then. Nothing changes on the device. A managed server requires the control token.",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.AccountDeletion"
+                                }
+                            }
+                        },
+                        "description": "OK"
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Forbidden"
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Conflict"
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/api.ErrorEnvelope"
+                                }
+                            }
+                        },
+                        "description": "Service Unavailable"
+                    }
+                },
+                "summary": "Request deletion of the account from the network",
                 "tags": [
                     "account"
                 ]
