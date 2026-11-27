@@ -168,9 +168,9 @@ curl -s -X POST http://127.0.0.1:2046/v1/account/deletion      # any account del
   "fetchedAt": "2026-08-20T17:06:40Z" }
 ```
 
-The request changes nothing on the device and does not sign out. While the deletion is pending the coordinator refuses the account's pushes and the sync nodes refuse its spaces, so the spaces the account owns stop syncing. Local reads and writes keep working. Spaces the account only joined are not touched.
+The request changes nothing on the device and does not sign out. Local reads and writes keep working. While the deletion is pending, sync of the spaces the account owns is not guaranteed: the coordinator refuses their ACL changes and the registration of new spaces, and a sync node refuses a pending space it has to load. A space a node already holds in memory keeps syncing. Spaces the account only joined are not touched.
 
-`DELETE /v1/account/deletion` cancels the request while it is pending, and the nodes serve the spaces again:
+`DELETE /v1/account/deletion` cancels the request while it is pending:
 
 ```bash
 curl -s -X DELETE http://127.0.0.1:2046/v1/account/deletion    # any account revert-deletion
@@ -180,16 +180,19 @@ curl -s -X DELETE http://127.0.0.1:2046/v1/account/deletion    # any account rev
 { "state": "active", "fetchedAt": "2026-08-21T09:12:03Z" }
 ```
 
-After `deleteAt` the coordinator deletes the spaces and the state reads `deleted`. The server then offloads them on every device that still holds them, the devices of other members included.
+After `deleteAt` the coordinator deletes the spaces and the state reads `deleted`. The server then offloads them on every device that still holds them, the devices of other members included. The account's derived spaces and its tech space stay on a device until the host removes the account dir.
 
 `GET /v1/account` carries the state as `deletion`. It is the coordinator's last answer, stored in the device's database: the server reads it at boot, every five minutes, and on a request or a revert. So the route answers offline and never waits for the network. `deletion` is missing while the coordinator has never answered on this device. A change, from this device or another one of the account, publishes a device-scope `account.deletion` [event](../realtime/event-bus.html).
 
-The sync nodes refuse an account whose deletion is pending, so a [login](#create-or-log-in) from a device that holds nothing of it waits. `GET /v1/auth` reports the state as `login.deletion`, and `DELETE /v1/account/deletion` answers during that wait: the revert needs the account key and the coordinator, not the account's data. So a device that kept only the key can still cancel the deletion. After the revert the login ends on its own, once a node has served the account's tech space:
+A device that kept only the account key can still cancel the deletion. Its [login](#create-or-log-in) ends once a sync node serves the account's tech space, and a node may refuse an account whose deletion is pending. So the device reads the state in one of two places:
+
+- **The login waits.** `GET /v1/auth` reports the state as `login.deletion`, and `DELETE /v1/account/deletion` answers during the wait: the revert needs the account key and the coordinator, not the account's data. After the revert the login ends on its own.
+- **The login ends.** The account opens and `GET /v1/account` carries `deletion.state: "pending"`.
 
 ```bash
-any auth login --mnemonic-stdin < phrase.txt    # the login waits: the nodes refuse the account
-curl -s http://127.0.0.1:2046/v1/auth           # "login": { …, "deletion": { "state": "pending", … } }
-any account revert-deletion                     # 200 { "state": "active", … }
+any auth login --mnemonic-stdin < phrase.txt
+curl -s http://127.0.0.1:2046/v1/auth           # waiting: "login": { …, "deletion": { "state": "pending", … } }
+any account revert-deletion                     # 200 { "state": "active", … }, waiting or open
 curl -s http://127.0.0.1:2046/v1/auth           # "authorized": true once the tech space has synced
 ```
 

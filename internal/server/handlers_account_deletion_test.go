@@ -335,3 +335,75 @@ func TestServer_AccountDeletion_WaitingLoginGate(t *testing.T) {
 		t.Errorf("request while the login waits: %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+// TestServer_AccountDeletion_ColdLogin: a device that holds only the key
+// of an account whose deletion is pending logs in against the network as
+// it is. A sync node may still serve the account or refuse it, so the
+// state shows on the waiting login or on the open account; the revert
+// answers in both, and the account ends up open and active.
+func TestServer_AccountDeletion_ColdLogin(t *testing.T) {
+	if _, err := os.ReadFile(stagingPath); err != nil {
+		t.Skipf("staging config not available: %v", err)
+	}
+	first := newUnauthorizedDeps(t)
+	e1 := buildEcho(first)
+	created := postAuth(t, e1, `{}`)
+	var rec *httptest.ResponseRecorder
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(time.Second) {
+		rec = doJSON(t, e1, http.MethodPost, "/v1/account/deletion", "")
+		if rec.Code == http.StatusOK {
+			break
+		}
+		code := errCode(t, rec.Body.Bytes())
+		if (code != api.ErrAccountNotOnNetwork && code != api.ErrAccountNetworkUnavailable) || time.Now().After(deadline) {
+			t.Fatalf("POST /v1/account/deletion: %d %s", rec.Code, rec.Body.String())
+		}
+	}
+	pending := decodeAccountDeletion(t, rec)
+	first.teardownEngine(logger.NewNamed("test"), api.SubscribeClosedServerShutdown)
+
+	d := newUnauthorizedDeps(t)
+	e := buildEcho(d)
+	if login := postAuth(t, e, `{"mnemonic":`+strconv.Quote(created.Mnemonic)+`}`); login.AccountId != created.AccountId {
+		t.Fatalf("login reply: %+v", login)
+	}
+	// The state, wherever the login stands.
+	var seen *api.AccountDeletion
+	for deadline := time.Now().Add(90 * time.Second); seen == nil; time.Sleep(200 * time.Millisecond) {
+		st := authStatusOf(t, e)
+		switch {
+		case st.Login != nil:
+			seen = st.Login.Deletion
+		case st.Authorized:
+			account, _ := getAccount(t, e)
+			seen = account.Deletion
+		}
+		if seen == nil && time.Now().After(deadline) {
+			t.Fatalf("the device never read the deletion state: %+v", st)
+		}
+	}
+	if seen.State != "pending" || seen.DeleteAt == nil || !seen.DeleteAt.Equal(*pending.DeleteAt) {
+		t.Fatalf("deletion state on the device = %+v, want pending until %s", seen, pending.DeleteAt)
+	}
+
+	// The revert answers 503 only when the login ends under it.
+	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(200 * time.Millisecond) {
+		rec = doJSON(t, e, http.MethodDelete, "/v1/account/deletion", "")
+		if rec.Code != http.StatusServiceUnavailable || time.Now().After(deadline) {
+			break
+		}
+	}
+	if active := decodeAccountDeletion(t, rec); active.State != "active" {
+		t.Fatalf("revert = %s", rec.Body.String())
+	}
+	for deadline := time.Now().Add(3 * time.Minute); ; time.Sleep(200 * time.Millisecond) {
+		if st := authStatusOf(t, e); st.Authorized && st.Login == nil {
+			break
+		} else if time.Now().After(deadline) {
+			t.Fatalf("the account never opened after the revert: %+v", st)
+		}
+	}
+	if account, body := getAccount(t, e); account.Deletion == nil || account.Deletion.State != "active" {
+		t.Fatalf("GET /v1/account after the revert = %s", body)
+	}
+}

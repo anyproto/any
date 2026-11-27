@@ -32,8 +32,8 @@ type AuthCapabilities struct {
 // sync. Logging in to an existing account (a phrase on a device that
 // holds nothing of it) keeps the server closed until the account's
 // space registry has synced once from a sync node or a direct peer:
-// until then Authorized is false and every guarded route but
-// DELETE /v1/account/deletion answers 503 auth.login_pending. The wait survives a restart and ends on its own;
+// until then Authorized is false and every guarded route answers 503
+// auth.login_pending, DELETE /v1/account/deletion excepted. The wait survives a restart and ends on its own;
 // poll GET /v1/auth.
 type LoginState struct {
 	// AccountId is the account being logged in.
@@ -49,10 +49,9 @@ type LoginState struct {
 	LocalPeers   int `json:"localPeers"`
 	GlobalPeers  int `json:"globalPeers"`
 	// Deletion is the account's deletion state on the network; omitted
-	// while the network has never answered on this device. The sync
-	// nodes refuse an account whose deletion is pending: its login
-	// ends after DELETE /v1/account/deletion, which a waiting login
-	// serves.
+	// while the network has never answered on this device. A sync
+	// node may refuse an account whose deletion is pending, so a
+	// waiting login serves DELETE /v1/account/deletion.
 	Deletion *AccountDeletion `json:"deletion,omitempty"`
 }
 

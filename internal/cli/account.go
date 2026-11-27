@@ -5,11 +5,20 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/anyproto/any/internal/api"
 )
+
+// deletionCallTimeout is the request timeout of a deletion request or
+// revert: --timeout, but never under the time the server gives the
+// network, so the server's answer is the one the caller reads.
+func deletionCallTimeout() time.Duration {
+	const serverWait = 45 * time.Second
+	return max(flags.Timeout, serverWait)
+}
 
 // `any account ...` — account-level operations that aren't scoped to
 // any single space. Mirrors sdk.Account() in the SDK.
@@ -142,15 +151,15 @@ printed.`,
 		Use:   "delete",
 		Short: "request deletion of the account from the network (requires --yes)",
 		Long: `Sends POST /v1/account/deletion and prints the state with the date the
-network deletes the account's data. Every space the account owns stops
-syncing until then; "any account revert-deletion" cancels the request
-while it is pending. Nothing changes on this device.`,
+network deletes the account's data. Until then the network may stop
+syncing the spaces the account owns; "any account revert-deletion"
+cancels the request while it is pending. Nothing changes on this device.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !yes {
 				return fmt.Errorf("refusing to request the account's deletion without --yes")
 			}
-			cl := newClient(0) // the server bounds the network call
+			cl := newClient(deletionCallTimeout())
 			res, err := cl.AccountRequestDeletion(cmd.Context())
 			if err != nil {
 				return err
@@ -165,7 +174,7 @@ while it is pending. Nothing changes on this device.`,
 		Short: "cancel a pending deletion of the account (DELETE /v1/account/deletion)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cl := newClient(0) // the server bounds the network call
+			cl := newClient(deletionCallTimeout())
 			res, err := cl.AccountRevertDeletion(cmd.Context())
 			if err != nil {
 				return err

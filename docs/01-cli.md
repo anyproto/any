@@ -68,8 +68,9 @@ arrives over `POST /v1/auth` on every boot, the device key is cached
 per account), and prints its control token as the second stdout line
 (`CONTROL_TOKEN <hex>`). Driving one from the CLI needs that token —
 `--control-token` / `ANY_CONTROL_TOKEN` — on `auth login`, `auth
-logout` and `auth login --replace` (switch to another account in
-place). A standalone server refuses `auth logout` and `--replace`.
+logout`, `auth login --replace` (switch to another account in
+place), `account delete` and `account revert-deletion`. A standalone
+server refuses `auth logout` and `--replace`.
 
 Prefer `ANY_CONTROL_TOKEN` over `--control-token`: a flag value is
 visible in the process list, and it never appears in `--help` output

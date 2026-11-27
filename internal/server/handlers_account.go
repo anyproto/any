@@ -56,7 +56,7 @@ func (d *deps) accountGet(c echo.Context) error {
 // The request changes nothing on this device and does not sign out.
 //
 //	@Summary		Request deletion of the account from the network
-//	@Description	Asks the network to delete the account: every space the account owns enters pending deletion until deleteAt, and the network stops syncing them. Revertible with DELETE /v1/account/deletion until then. Nothing changes on the device. A managed server requires the control token.
+//	@Description	Asks the network to delete the account: every space the account owns enters pending deletion until deleteAt, and the network may stop syncing them. Revertible with DELETE /v1/account/deletion until then. Nothing changes on the device. A managed server requires the control token.
 //	@Tags			account
 //	@Produce		json
 //	@Success		200	{object}	api.AccountDeletion
@@ -78,7 +78,7 @@ func (d *deps) accountDeletionRequest(c echo.Context) error {
 // accountDeletionRevert handles DELETE /v1/account/deletion.
 //
 //	@Summary		Revert a pending deletion of the account
-//	@Description	Cancels a pending deletion: the account's spaces return to active and the network syncs them again. Also answers while a login waits for its first sync: the nodes refuse an account whose deletion is pending, so that login ends only after the revert. A managed server requires the control token.
+//	@Description	Cancels a pending deletion: the account's spaces return to active on the network. Also answers while a login waits for its first sync: a sync node may refuse an account whose deletion is pending, and the revert needs only the account key. A managed server requires the control token.
 //	@Tags			account
 //	@Produce		json
 //	@Success		200	{object}	api.AccountDeletion
@@ -110,12 +110,21 @@ func (d *deps) accountDeletionRevertWaiting(c echo.Context) error {
 		err error
 	}
 	res := make(chan result, 1)
-	// Under openMu: a teardown clears the wait there before it joins
-	// the engine's goroutines and closes the SDK.
+	reqCtx := c.Request().Context()
+	// Under openMu: a teardown or a discard marks the engine done and
+	// clears the wait there before it joins the engine's goroutines and
+	// closes the SDK.
 	d.openMu.Lock()
 	w := d.login.Load()
+	if w != nil && w.eng.done.Load() {
+		w = nil
+	}
 	if w != nil {
 		w.eng.spawn(func(ctx context.Context) {
+			// Bound by the engine and by the request, like a gated call.
+			ctx, cancel := context.WithCancel(ctx)
+			defer cancel()
+			defer context.AfterFunc(reqCtx, cancel)()
 			st, err := w.sdk.Account().RevertDeletion(ctx)
 			res <- result{st, err}
 		})
@@ -131,7 +140,7 @@ func (d *deps) accountDeletionRevertWaiting(c echo.Context) error {
 			return accountDeletionError(c, r.err)
 		}
 		return c.JSON(http.StatusOK, accountDeletionToAPI(&r.st))
-	case <-c.Request().Context().Done():
+	case <-reqCtx.Done():
 		return writeError(c, http.StatusServiceUnavailable, "server.unavailable", "request cancelled", nil)
 	}
 }

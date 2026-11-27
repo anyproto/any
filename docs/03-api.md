@@ -625,24 +625,27 @@ request while it is pending. Both answer the deletion state, which
   until `deleteAt`; the network sets the period. Spaces the account
   only joined are not touched.
 - Nothing changes on the device, and the request does not sign out.
-  While the deletion is pending the network does not sync the spaces
-  the account owns. Local reads and writes keep working, and a revert
-  restores sync.
+  Local reads and writes keep working. Until a revert the network may
+  stop syncing the spaces the account owns: it refuses their ACL
+  changes, and a sync node refuses a pending space it has to load.
 - After `deleteAt` the network deletes the data and the state reads
   `deleted`. The server then offloads those spaces on every device
-  that holds them, members' devices included.
+  that holds them, members' devices included. The account's derived
+  spaces and its tech space stay on a device until the host removes
+  the account dir.
 - The state is the network's last answer, kept on the device. The
   server reads it at boot, every five minutes, and on a request or a
   revert, so `GET /v1/account` never waits for the network and serves
   the state offline. `deletion` is omitted while the network has never
   answered on this device. A change publishes `account.deletion` on
   the event bus (docs/21-events.md).
-- The sync nodes refuse an account whose deletion is pending, so a
-  login to it from a device that holds nothing of it waits.
-  `GET /v1/auth` reports the state as `login.deletion`, and
-  `DELETE /v1/account/deletion` answers during that wait: the revert
-  needs the account key, not the account's data. After it the login
-  ends on its own, once a node has served the account.
+- A login from a device that holds nothing of the account ends once a
+  sync node serves the account, and a node may refuse an account
+  whose deletion is pending. While the login waits, `GET /v1/auth`
+  reports the state as `login.deletion` and
+  `DELETE /v1/account/deletion` answers: the revert needs the account
+  key, not the account's data. A login that ends while the deletion
+  is pending opens the account with `deletion.state: "pending"`.
 - A managed server takes both writes only with the control token
   (`403 control.forbidden`).
 
@@ -653,7 +656,8 @@ the data), `409 account.not_on_network` (either, for an account the
 network has never registered: it holds nothing of it),
 `503 account.network_unavailable` (the network did not complete the
 call; the server waits for it up to thirty seconds, so give the
-request a longer timeout).
+request a longer timeout), `503 server.unavailable` (a revert during
+a waiting login that ended mid-call; retry).
 
 ### Identities (account-global directory)
 

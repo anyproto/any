@@ -59,11 +59,10 @@ string: `GET /v1/auth` reports the operations the server accepts as
 `capabilities` bits (`03-api.md` § Auth).
 
 **Control token.** A managed server accepts `POST`/`DELETE /v1/auth`,
-`DELETE /v1/auth/login`, `POST /v1/shutdown`,
-`PUT /v1/local-discovery` and `POST`/`DELETE /v1/account/deletion`
-only with the `X-Any-Control-Token` header —
-otherwise any same-user process on the loopback could log it into a
-different account, stop it or delete the account from the network. A CLI-spawned managed server mints the
+`DELETE /v1/auth/login`, `POST /v1/shutdown`, `PUT /v1/local-discovery`
+and `POST`/`DELETE /v1/account/deletion` only with the
+`X-Any-Control-Token` header — otherwise any same-user process on the
+loopback could log it into a different account or stop it. A CLI-spawned managed server mints the
 token and prints it as the second line of the stdout handshake
 (`CONTROL_TOKEN <hex>`, right after `LISTENING`); only the spawning
 parent owns that pipe. An in-process host passes its own through

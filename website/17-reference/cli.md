@@ -45,13 +45,14 @@ any stop [--config PATH] [--data-dir PATH] [--account ID]         # signal the s
 any version                                                       # binary version, plus the server's when one runs
 ```
 
-`--mode managed` starts a host-owned server: it never resolves an account from disk, the phrase arrives over `POST /v1/auth` on every launch, and it prints its control token as the second stdout line (`CONTROL_TOKEN <hex>`). `auth login --replace` (switch in place) and `auth logout` are managed-only and need that token (`ANY_CONTROL_TOKEN`). `any stop` sends no HTTP and takes no `--addr`: it finds the server by its held account lock and signals it — so it works against a wedged server and one on an ephemeral port; a standalone server refuses `POST /v1/shutdown`. Not available on Windows (no signal to send — stop the server with Ctrl-C).
+`--mode managed` starts a host-owned server: it never resolves an account from disk, the phrase arrives over `POST /v1/auth` on every launch, and it prints its control token as the second stdout line (`CONTROL_TOKEN <hex>`). `auth login --replace` (switch in place) and `auth logout` are managed-only and need that token (`ANY_CONTROL_TOKEN`); `account delete` and `account revert-deletion` need it on a managed server. `any stop` sends no HTTP and takes no `--addr`: it finds the server by its held account lock and signals it — so it works against a wedged server and one on an ephemeral port; a standalone server refuses `POST /v1/shutdown`. Not available on Windows (no signal to send — stop the server with Ctrl-C).
 
 `any init` creates the data dir and an account wallet, printing the BIP-39 mnemonic to stderr once. With `--mnemonic` / `--mnemonic-stdin` it restores an existing account (same phrase, same account id, a fresh device key) — prefer stdin so the phrase stays out of shell history. `--index` defaults to 1 (the any derivation index; 0 restores an anytype-derived account); `--new` forces an additional account. `any run` never creates wallets: with no resolvable account it starts unauthorized and waits for `any auth login`. See [Accounts](../auth/accounts.html).
 
 ## Account, identities, devices
 
 ```
+any account                                                             # GET /v1/account
 any account set-metadata [--name N] [--description D]                   # PUT /v1/account/metadata
 any account set-icon <path> [--name N]                                  # PUT /v1/account/icon (raw image body; - = stdin)
 any account icon [-o PATH]                                              # GET /v1/account/icon

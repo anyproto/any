@@ -93,10 +93,9 @@ components:
     api.AccountDeletion:
       description: |-
         Deletion is the account's deletion state on the network; omitted
-        while the network has never answered on this device. The sync
-        nodes refuse an account whose deletion is pending: its login
-        ends after DELETE /v1/account/deletion, which a waiting login
-        serves.
+        while the network has never answered on this device. A sync
+        node may refuse an account whose deletion is pending, so a
+        waiting login serves DELETE /v1/account/deletion.
       properties:
         deleteAt:
           description: |-
@@ -3886,9 +3885,9 @@ paths:
   /account/deletion:
     delete:
       description: 'Cancels a pending deletion: the account''s spaces return to active
-        and the network syncs them again. Also answers while a login waits for its
-        first sync: the nodes refuse an account whose deletion is pending, so that
-        login ends only after the revert. A managed server requires the control token.'
+        on the network. Also answers while a login waits for its first sync: a sync
+        node may refuse an account whose deletion is pending, and the revert needs
+        only the account key. A managed server requires the control token.'
       responses:
         "200":
           content:
@@ -3919,7 +3918,7 @@ paths:
       - account
     post:
       description: 'Asks the network to delete the account: every space the account
-        owns enters pending deletion until deleteAt, and the network stops syncing
+        owns enters pending deletion until deleteAt, and the network may stop syncing
         them. Revertible with DELETE /v1/account/deletion until then. Nothing changes
         on the device. A managed server requires the control token.'
       responses:
