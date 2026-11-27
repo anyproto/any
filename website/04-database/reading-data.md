@@ -75,6 +75,7 @@ Multiple keys in one filter object are AND-ed. A bare value means `$eq`.
 | Comparison | `$eq`, `$ne`, `$gt`, `$gte`, `$lt`, `$lte` |
 | Sets | `$in`, `$nin`, `$all` |
 | Existence / shape | `$exists`, `$size`, `$type` |
+| Elements | `$elemMatch` |
 | Logical | `$and`, `$or`, `$nor`, `$not` |
 | Strings | `$regex` (with `$options`) |
 
@@ -93,7 +94,8 @@ When a field is an array, the filter compares against its elements:
 
 - a **scalar** means *contains*: `{"any.tags": "food"}`;
 - **`$in`** means *intersects*: `{"any.tags": {"$in": ["a", "b"]}}`;
-- **`$all`** means *superset*: `{"any.tags": {"$all": ["a", "b"]}}`.
+- **`$all`** means *superset*: `{"any.tags": {"$all": ["a", "b"]}}`;
+- **`$elemMatch`** binds its conditions to one element: `{"<ownerId>.<propId>": {"$elemMatch": {"$gte": 80, "$lt": 90}}}`, or on an array of objects `{"$elemMatch": {"sku": "a1", "qty": {"$gt": 2}}}`.
 
 There is deliberately no `$contains` — the scalar spelling already is it. `any.collections` is the array that matters most: `{"any.collections": "<collectionId>"}` lists what is filed under a collection, `$all` demands several at once, `$nin` excludes.
 
@@ -126,7 +128,7 @@ Instants filter as instants. Wrap the literal in `{"$date": …}`:
 
 ## Sort
 
-`sort` is an array of dotted paths, `-` prefix for descending, applied left to right (anything else, or a key that does not parse, is `400 request.invalid_field` with `details.field: "sort"`): `["<wikiCollectionId>.<parentIdPropId>", "<wikiCollectionId>.<posPropId>", "id"]` (the wiki tree's columns — [Objects](objects.html)). On `/subscribe`, `sort` is required whenever `limit > 0` so the window is well-defined. `{"sort": ["-modifiedAt", "-id"]}` is "recently modified first"; `["-createdAt", "-id"]` is creation order. A sort that can tie ends in `id`, in the direction of the key before it — tied rows have no specified order. A row that lacks a sort field, or holds `null` there, sorts lowest: first ascending, last descending. Re-apply the same sort client-side after each `changes` batch — a map's insertion order is not query order.
+`sort` is an array of dotted paths, `-` prefix for descending, applied left to right (anything else, or a key that does not parse, is `400 request.invalid_field` with `details.field: "sort"`): `["<wikiCollectionId>.<parentIdPropId>", "<wikiCollectionId>.<posPropId>", "id"]` (the wiki tree's columns — [Objects](objects.html)). On `/subscribe`, `sort` is required whenever `limit > 0` so the window is well-defined. `{"sort": ["-modifiedAt", "-id"]}` is "recently modified first"; `["-createdAt", "-id"]` is creation order. A sort that can tie ends in `id`, in the direction of the key before it — tied rows have no specified order. A row that lacks a sort field, or holds `null` there, sorts lowest: first ascending, last descending. An array sorts on its smallest element ascending and its largest descending; an empty array sorts as itself, above every scalar (`null < number < string < false < true < array < object`). Re-apply the same sort client-side after each `changes` batch — a map's insertion order is not query order.
 
 ## Paths
 
@@ -139,6 +141,8 @@ Instants filter as instants. Wrap the literal in `{"$date": …}`:
 | `_ver.id` | The record's creation version id — the logical DAG order of one object's records. |
 | `id` | The record id; `<objectId>/<recordId>` on a shared dataset. |
 | `_objectId` | The object a shared dataset's record belongs to. |
+
+A path continues into an object value's fields, in filter and sort alike: `<ownerId>.<propId>.from` is a `period`'s start, `<ownerId>.<propId>.amount` a `money` amount.
 
 A type's or collection's `xKey` is a client-side label, never a server path.
 

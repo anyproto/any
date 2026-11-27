@@ -169,6 +169,7 @@ The operator set is any-store's filter grammar:
 - Comparison: `$eq` (or a bare value), `$ne`, `$gt`, `$gte`, `$lt`, `$lte`
 - Sets: `$in`, `$nin`, `$all`
 - Existence / shape: `$exists`, `$size`, `$type`
+- Elements: `$elemMatch` (§ Arrays)
 - Logical: `$and`, `$or`, `$nor`, `$not`
 - Strings: `$regex` (with `$options`)
 
@@ -220,6 +221,11 @@ When a field is an **array**, the filter compares against its *elements*:
   object whose `tags` array includes `"food"`.
 - **`$in`** means **intersects**: `{ "<t>.tags": { "$in": ["a","b"] } }`.
 - **`$all`** means **superset**: `{ "<t>.tags": { "$all": ["a","b"] } }`.
+- **`$elemMatch`** binds its conditions to **one** element:
+  `{ "<t>.scores": { "$elemMatch": { "$gte": 80, "$lt": 90 } } }` needs one
+  element in range, where `{ "$gte": 80, "$lt": 90 }` alone may match two
+  different elements. On an array of objects the operand is a condition on
+  the element's fields: `{ "<t>.items": { "$elemMatch": { "sku": "a1", "qty": { "$gt": 2 } } } }`.
 
 This is how a client filters by category server-side, pruning candidates
 before they cross the wire. There is no `$contains` — the scalar spelling
@@ -311,7 +317,10 @@ no specified order.
 
 A row that lacks a sort field, or holds `null` there, sorts lowest: first
 on an ascending key, last on a descending one. An array sorts on its
-smallest element ascending and its largest descending.
+smallest element ascending and its largest descending. An empty array sorts
+as itself, in the value order `null < number < string < false < true <
+array < object`: above every scalar, so after every non-empty array of
+scalars on an ascending key and before them on a descending one.
 
 A `sort` that is not an array of strings, or a key the parser rejects, is
 `400 request.invalid_field` with `details.field: "sort"` (`local.bad_sort`
@@ -332,6 +341,10 @@ that same change — is unindexed, so a filter on it scans. The wiki tree is
 no exception: the wiki collection's `parentId` / `pos` / `folder` are
 `<wikiCollectionId>.<propId>` paths, the ids resolved from
 `POST /v1/catalog/wiki/setup` (`03-api.md` § The wiki tree).
+
+A path continues into an object value's fields, at any depth, in filter
+and sort alike: `<ownerId>.<propId>.from` is a `period`'s start and
+`<ownerId>.<propId>.amount` a `money` amount (`27-descriptors.md`).
 
 Client helpers may expose dotted **xKey** paths instead (`"recipe.tags"`,
 `"movie.title"`) — the owner's `xKey` (from `GET …/types` or

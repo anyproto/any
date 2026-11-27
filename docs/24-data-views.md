@@ -365,6 +365,22 @@ level down: an option key missing from the property's current
 `xFormat.options` is dangling (options are dangling-tolerant by design —
 delete is a hard `$unset` and values keep the orphan key).
 
+### Rules `/query` cannot run
+
+`query.filter` and `query.sort` hold only what `/query` runs, so every
+client runs them as stored. A rule `/query` cannot run goes in a key of
+its own next to them, such as `query.anyUi`. That covers a filter through
+a relation, a rollup or formula, and a date relative to today. It also
+covers a sort by a choice's option order or by a referenced object's
+name, because `/query` orders the stored option key or `any://` id.
+
+`type`, `filter`, `sort` and `groupBy` are the shared keys. Any other key
+narrows or reorders the view. A client that does not run it marks the
+view as narrower than it can run, as it marks a dangling rule, and keeps
+the key on every write. Edit with path writes (`$set` on
+`query.filter`), never by replacing `query` whole. A setting that changes
+neither the rows nor their order belongs in `layoutSettings`.
+
 ## Grouping
 
 `groupBy` is a **render directive**, not a query the server executes:
