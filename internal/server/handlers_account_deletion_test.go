@@ -395,16 +395,21 @@ func TestServer_AccountDeletion_ColdLogin(t *testing.T) {
 	// The revert answers wherever the login stands. It is retried for
 	// a login that ends under the call and for a network that fails
 	// it, never for a waiting login that refuses it.
+	lost := false // the network failed an attempt it may have taken
 	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(200 * time.Millisecond) {
 		rec = doJSON(t, e, http.MethodDelete, "/v1/account/deletion", "")
 		if rec.Code != http.StatusServiceUnavailable || time.Now().After(deadline) {
 			break
 		}
-		if code := errCode(t, rec.Body.Bytes()); code != "server.unavailable" && code != api.ErrAccountNetworkUnavailable {
+		code := errCode(t, rec.Body.Bytes())
+		if code != "server.unavailable" && code != api.ErrAccountNetworkUnavailable {
 			break
 		}
+		lost = lost || code == api.ErrAccountNetworkUnavailable
 	}
-	if active := decodeAccountDeletion(t, rec); active.State != "active" {
+	if lost && rec.Code == http.StatusConflict && errCode(t, rec.Body.Bytes()) == api.ErrAccountDeletionNotPending {
+		// The network took the attempt it failed to answer.
+	} else if active := decodeAccountDeletion(t, rec); active.State != "active" {
 		t.Fatalf("revert = %s", rec.Body.String())
 	}
 	for deadline := time.Now().Add(3 * time.Minute); ; time.Sleep(200 * time.Millisecond) {

@@ -153,7 +153,8 @@ printed.`,
 		Long: `Sends POST /v1/account/deletion and prints the state with the date the
 network deletes the account's data. Until then the network may stop
 syncing the spaces the account owns; "any account revert-deletion"
-cancels the request while it is pending. Nothing changes on this device.`,
+cancels the request while it is pending. Nothing changes on this device.
+Waits for the reply 75 seconds, or --timeout when that is longer.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !yes {
@@ -172,7 +173,9 @@ cancels the request while it is pending. Nothing changes on this device.`,
 	revertDeletion := &cobra.Command{
 		Use:   "revert-deletion",
 		Short: "cancel a pending deletion of the account (DELETE /v1/account/deletion)",
-		Args:  cobra.NoArgs,
+		Long: `Sends DELETE /v1/account/deletion and prints the state. Waits for the
+reply 75 seconds, or --timeout when that is longer.`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cl := newClient(deletionCallTimeout())
 			res, err := cl.AccountRevertDeletion(cmd.Context())

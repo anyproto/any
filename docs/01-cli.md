@@ -103,7 +103,8 @@ any account revert-deletion                         # DELETE /v1/account/deletio
 ```
 
 `delete` and `revert-deletion` wait for the reply 75 seconds, or
-`--timeout` when that is longer: the server answers within a minute.
+`--timeout` when that is longer: the server answers within about a
+minute.
 
 ### Identities (account-global directory)
 

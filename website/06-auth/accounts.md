@@ -203,7 +203,7 @@ curl -s http://127.0.0.1:2046/v1/auth           # "authorized": true once the te
 | 409 | `account.deletion_not_pending` | a revert with none pending |
 | 409 | `account.deleted` | either, once the network has deleted the data |
 | 409 | `account.not_on_network` | either, for an account the coordinator has never registered |
-| 503 | `account.network_unavailable` | the coordinator did not complete the call; the server answers within a minute. The coordinator may still have taken the call, so read the state before retrying: `deletion` on `GET /v1/account`, or `login.deletion` while a login waits |
+| 503 | `account.network_unavailable` | the coordinator did not complete the call; the server answers within about a minute. The coordinator may still have taken the call, so read the state before retrying: `deletion` on `GET /v1/account`, or `login.deletion` while a login waits |
 
 > **Why it matters.** On a hosted backend "delete my account" removes rows the provider holds. Here the data lives on the account's devices and, encrypted, on the sync nodes. The request reaches only the network: the account dir on a device stays until its host removes it.
 
