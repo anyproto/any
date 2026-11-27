@@ -177,7 +177,7 @@ func accountDeletionError(c echo.Context, err error) error {
 			"the network has never registered the account: it holds nothing of it", nil)
 	case errors.Is(err, space.ErrNetworkUnavailable):
 		return writeError(c, http.StatusServiceUnavailable, api.ErrAccountNetworkUnavailable,
-			"the network did not complete the call, but may have taken it — read GET /v1/account before retrying", nil)
+			"the network did not complete the call, but may have taken it — read the deletion state before retrying", nil)
 	}
 	return sdkOpError(c, err, nil)
 }

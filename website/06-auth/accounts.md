@@ -168,9 +168,9 @@ curl -s -X POST http://127.0.0.1:2046/v1/account/deletion      # any account del
   "fetchedAt": "2026-08-20T17:06:40Z" }
 ```
 
-The request changes nothing on the device and does not sign out. Local reads and writes keep working. While the deletion is pending, sync of the spaces the account owns is not guaranteed: the coordinator refuses their ACL changes and the registration of new spaces, and a sync node refuses a pending space it has to load. A space a node already holds in memory keeps syncing. Spaces the account only joined are not touched.
+The request changes nothing on the device and does not sign out. Local reads and writes keep working. While the deletion is pending, sync of the spaces the account owns is not guaranteed: the coordinator refuses their ACL changes (`409 acl.space_deleted`) and the registration of new spaces, and a sync node refuses a pending space it has to load. A space a node already holds in memory keeps syncing. Spaces the account only joined are not touched.
 
-`DELETE /v1/account/deletion` cancels the request while it is pending:
+`DELETE /v1/account/deletion` cancels the request while it is pending. A space a node had refused, or one created meanwhile, syncs again within about a minute:
 
 ```bash
 curl -s -X DELETE http://127.0.0.1:2046/v1/account/deletion    # any account revert-deletion
@@ -203,7 +203,7 @@ curl -s http://127.0.0.1:2046/v1/auth           # "authorized": true once the te
 | 409 | `account.deletion_not_pending` | a revert with none pending |
 | 409 | `account.deleted` | either, once the network has deleted the data |
 | 409 | `account.not_on_network` | either, for an account the coordinator has never registered |
-| 503 | `account.network_unavailable` | the coordinator did not complete the call within thirty seconds; it may still have taken it, so read `GET /v1/account` before retrying |
+| 503 | `account.network_unavailable` | the coordinator did not complete the call; the server answers within a minute. The coordinator may still have taken the call, so read the state before retrying: `deletion` on `GET /v1/account`, or `login.deletion` while a login waits |
 
 > **Why it matters.** On a hosted backend "delete my account" removes rows the provider holds. Here the data lives on the account's devices and, encrypted, on the sync nodes. The request reaches only the network: the account dir on a device stays until its host removes it.
 

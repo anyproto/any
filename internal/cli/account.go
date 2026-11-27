@@ -13,10 +13,10 @@ import (
 )
 
 // deletionCallTimeout is the request timeout of a deletion request or
-// revert: --timeout, but never under the time the server gives the
-// network, so the server's answer is the one the caller reads.
+// revert: --timeout, but never under the minute the server may take to
+// answer, so the server's answer is the one the caller reads.
 func deletionCallTimeout() time.Duration {
-	const serverWait = 45 * time.Second
+	const serverWait = 75 * time.Second
 	return max(flags.Timeout, serverWait)
 }
 

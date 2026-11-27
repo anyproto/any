@@ -160,8 +160,8 @@ account is standalone-only — a managed login with its phrase lands in
    The engine then boots but stays closed: `GET /v1/auth` reads
    `authorized: false` with a `login` object, every guarded route but
    `DELETE /v1/account/deletion` answers `503 auth.login_pending`, and
-   the device registration, push
-   and the indexer are not started (the index is opened, and a local
+   the device registration, push and the indexer are not started (the
+   index is opened, and a local
    embedder may fetch its model meanwhile). Once the account's tech space has
    synced from a sync node or from another device of the account
    reached directly, `login.json` says `complete` and the engine

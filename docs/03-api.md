@@ -628,7 +628,10 @@ request while it is pending. Both answer the deletion state, which
 - Nothing changes on the device, and the request does not sign out.
   Local reads and writes keep working. Until a revert the network may
   stop syncing the spaces the account owns: it refuses their ACL
-  changes, and a sync node refuses a pending space it has to load.
+  changes (`409 acl.space_deleted` on the invite, member and ACL
+  routes) and does not register a space the account creates meanwhile,
+  and a sync node refuses a pending space it has to load. After a
+  revert a node may take about a minute to serve such a space again.
 - After `deleteAt` the network deletes the data and the state reads
   `deleted`. The server then offloads those spaces on every device
   that holds them, members' devices included. The account's derived
@@ -656,10 +659,11 @@ pending), `409 account.deleted` (either, once the network has deleted
 the data), `409 account.not_on_network` (either, for an account the
 network has never registered: it holds nothing of it),
 `503 account.network_unavailable` (the network did not complete the
-call; the server waits for it up to thirty seconds, so give the
-request a longer timeout; the network may still have taken the call,
-so read `GET /v1/account` before retrying), `503 server.unavailable`
-(a revert during a waiting login that ended mid-call; retry).
+call; the server answers within a minute, so give the request a longer
+timeout; the network may still have taken the call, so read the state
+before retrying: `deletion` on `GET /v1/account`, or `login.deletion`
+while a login waits), `503 server.unavailable` (a revert during a
+waiting login that ended mid-call; retry).
 
 ### Identities (account-global directory)
 

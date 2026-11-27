@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,6 +14,7 @@ import (
 	anysyncsdk "github.com/anyproto/any-sync-sdk"
 	"github.com/anyproto/any-sync-sdk/space"
 	"github.com/anyproto/any-sync/app/logger"
+	"github.com/labstack/echo/v4"
 
 	"github.com/anyproto/any/internal/api"
 	"github.com/anyproto/any/internal/config"
@@ -390,11 +392,15 @@ func TestServer_AccountDeletion_ColdLogin(t *testing.T) {
 		t.Fatalf("deletion state on the device = %+v, want pending until %s", seen, pending.DeleteAt)
 	}
 
-	// The revert answers at once, waiting or open. The one retry it
-	// may need is for a login that ends under the call.
+	// The revert answers wherever the login stands. It is retried for
+	// a login that ends under the call and for a network that fails
+	// it, never for a waiting login that refuses it.
 	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(200 * time.Millisecond) {
 		rec = doJSON(t, e, http.MethodDelete, "/v1/account/deletion", "")
-		if rec.Code != http.StatusServiceUnavailable || errCode(t, rec.Body.Bytes()) != "server.unavailable" || time.Now().After(deadline) {
+		if rec.Code != http.StatusServiceUnavailable || time.Now().After(deadline) {
+			break
+		}
+		if code := errCode(t, rec.Body.Bytes()); code != "server.unavailable" && code != api.ErrAccountNetworkUnavailable {
 			break
 		}
 	}
@@ -410,5 +416,19 @@ func TestServer_AccountDeletion_ColdLogin(t *testing.T) {
 	}
 	if account, body := getAccount(t, e); account.Deletion == nil || account.Deletion.State != "active" {
 		t.Fatalf("GET /v1/account after the revert = %s", body)
+	}
+}
+
+// TestAclOpError_SpaceDeleted: the network's refusal of an ACL write on
+// a space in pending deletion is a 409 of its own, not a server fault.
+func TestAclOpError_SpaceDeleted(t *testing.T) {
+	rec := httptest.NewRecorder()
+	c := echo.New().NewContext(httptest.NewRequest(http.MethodPost, "/v1/spaces/sp/acl/permissions", nil), rec)
+	err := fmt.Errorf("spaceimpl: change permissions: %w", space.ErrCoordinatorSpaceDeleted)
+	if werr := aclOpError(c, err, map[string]any{"spaceId": "sp"}); werr != nil {
+		t.Fatal(werr)
+	}
+	if rec.Code != http.StatusConflict || errCode(t, rec.Body.Bytes()) != "acl.space_deleted" {
+		t.Fatalf("mapped to %d %s", rec.Code, rec.Body.String())
 	}
 }

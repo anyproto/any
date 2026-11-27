@@ -102,6 +102,7 @@ members.not_found                # 404 — the member a members / ACL operation 
 acl.forbidden                    # 403 — the ACL refuses the operation for this account's permissions, or the coordinator refuses it (make-shareable on invite create is owner-only)
 acl.limit_reached                # 409 — the coordinator refuses an ACL operation for the space owner's plan, whoever calls: the owner's shared spaces on the first share of a space (invite create, guest key, direct add), or the space's readers or writers (accept, change permissions, direct add, guest key). One code for both limits; GET /v1/account/limits reads the shared-spaces limit
 acl.record_not_found             # 404 — the ACL record the operation names does not exist
+acl.space_deleted                # 409 — the network refuses an ACL change for a space it holds as deleted or in pending deletion: the space's owner requested the deletion of their account (POST /v1/account/deletion), or the space is deleted on the network
 invite.invalid                   # 400 — invite token malformed or not decodable as an invite
 invite.duplicate                 # 409 — POST …/invites while an invite already exists
 invite.not_found                 # 404 — GET …/invites/:recordId for an unknown record
