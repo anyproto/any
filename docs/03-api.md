@@ -628,10 +628,10 @@ request while it is pending. Both answer the deletion state, which
 - Nothing changes on the device, and the request does not sign out.
   Local reads and writes keep working. Until a revert the network may
   stop syncing the spaces the account owns: it refuses their ACL
-  changes (`409 acl.space_deleted`, § ACL) and does not register a
-  space the account creates meanwhile,
-  and a sync node refuses a pending space it has to load. After a
-  revert a node may take about a minute to serve such a space again.
+  changes (`409 acl.space_deleted`, § ACL operations) and does not
+  register a space the account creates meanwhile, and a sync node
+  refuses a pending space it has to load. After a revert a node may
+  take about a minute to serve such a space again.
 - After `deleteAt` the network deletes the data and the state reads
   `deleted`. The server then offloads those spaces on every device
   that holds them, members' devices included. The account's derived
@@ -660,8 +660,8 @@ the data), `409 account.not_on_network` (either, for an account the
 network has never registered: it holds nothing of it),
 `503 account.network_unavailable` (the network did not complete the
 call; the server answers within about a minute, so give the request a
-longer timeout; the network may still have taken the call, so read the state
-before retrying: `deletion` on `GET /v1/account`, or `login.deletion`
+longer timeout; the network may still have taken the call, so read the
+state before retrying: `deletion` on `GET /v1/account`, or `login.deletion`
 while a login waits), `503 server.unavailable` (a revert during a
 waiting login that ended mid-call; retry).
 
@@ -4877,9 +4877,9 @@ unknown permission string is `400 request.schema`. SDK refusals map to
 writers for the space, or of shared spaces). A join request counts
 against neither limit: the space takes it, and the refusal comes when
 the owner accepts. Every ACL write — these routes, the invite and
-guest-key writes, and `POST /v1/spaces/join` — answers
-`409 acl.space_deleted` while the network holds the space as deleted or
-in pending deletion (§ Account → Deletion).
+guest-key writes, and `POST /v1/spaces/join` with a member invite —
+answers `409 acl.space_deleted` while the network holds the space as
+deleted or in pending deletion (§ Account → Deletion).
 
 `cancel-join` is the one ACL op that never resolves the space: a
 pending join is never materialized, so the server posts the withdrawal

@@ -360,7 +360,7 @@ See [Files](../files/index.html).
 | POST | `/v1/spaces/:spaceId/acl/cancel-join` | — | 204 | joiner row reads `deleted`, re-request via `/v1/spaces/join`; `404 space.not_found`, `409 space.join_not_pending` |
 | POST | `/v1/spaces/:spaceId/acl/stop-sharing` | — | 204 | drops everyone |
 
-Permissions: `none`, `reader`, `guest`, `writer`, `admin`, `owner`. Member statuses: `unknown`, `joining`, `active`, `removed`, `declined`, `removing`, `canceled`. Guests writing get `403 space.read_only`; an ACL write on a space the network holds as deleted or in pending deletion is `409 acl.space_deleted` (this table's writes and `POST /v1/spaces/join`); an ACL operation the caller's role does not allow is `403 acl.forbidden`, one naming an unknown request record `404 acl.record_not_found`. See [Collaboration](../collaboration/index.html).
+Permissions: `none`, `reader`, `guest`, `writer`, `admin`, `owner`. Member statuses: `unknown`, `joining`, `active`, `removed`, `declined`, `removing`, `canceled`. Guests writing get `403 space.read_only`; an ACL write on a space the network holds as deleted or in pending deletion is `409 acl.space_deleted` (this table's writes and `POST /v1/spaces/join` with a member invite); an ACL operation the caller's role does not allow is `403 acl.forbidden`, one naming an unknown request record `404 acl.record_not_found`. See [Collaboration](../collaboration/index.html).
 
 ## Sync status and debug
 

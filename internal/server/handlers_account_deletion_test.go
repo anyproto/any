@@ -396,7 +396,7 @@ func TestServer_AccountDeletion_ColdLogin(t *testing.T) {
 	// a login that ends under the call and for a network that fails
 	// it, never for a waiting login that refuses it.
 	lost := false // the network failed an attempt it may have taken
-	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(200 * time.Millisecond) {
+	for deadline := time.Now().Add(2 * time.Minute); ; time.Sleep(200 * time.Millisecond) {
 		rec = doJSON(t, e, http.MethodDelete, "/v1/account/deletion", "")
 		if rec.Code != http.StatusServiceUnavailable || time.Now().After(deadline) {
 			break
